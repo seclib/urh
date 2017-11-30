@@ -35,11 +35,11 @@ test: off
 
 build_script:
   # Build the compiled extension
-  - python setup.py build_ext --inplace > nul
-  - pip install wheel twine cx_freeze!=5.1 six appdirs packaging
+  - python setup.py build_ext --inplace >nul 2>nul
+  - pip install wheel twine cx_freeze>5.1 six appdirs packaging
   - python -c "import tempfile, os; open(os.path.join(tempfile.gettempdir(), 'urh_releasing'), 'w').close()"
-  - python setup.py bdist_wheel
-  - python build_cx.py > nul
+  - python setup.py bdist_wheel >nul 2>nul
+  - python build_cx.py >nul 2>nul
   - dir dist
 
 artifacts:

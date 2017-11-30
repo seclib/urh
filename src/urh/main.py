@@ -25,16 +25,12 @@ def fix_stderr_on_windows():
         try:
             sys.stdout.write("\n")
             sys.stdout.flush()
-        except IOError:
+        except:
             class DummyStream(object):
                 def __init__(self): pass
-
                 def write(self, data): pass
-
                 def read(self, data): pass
-
                 def flush(self): pass
-
                 def close(self): pass
 
             sys.stdout = DummyStream()

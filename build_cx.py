@@ -25,7 +25,7 @@ def build_exe(build_cmd='build'):
             icon=os.path.join("data", 'icons', 'appicon.ico'),
             shortcutName="Universal Radio Hacker",
             shortcutDir="DesktopFolder",
-            base="console")]
+            base="Win32GUI")]
     else:
         include_files = [os.path.join("data", 'icons', 'appicon.png')]
         executables = [cx_Freeze.Executable(

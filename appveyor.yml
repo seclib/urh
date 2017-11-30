@@ -36,7 +36,7 @@ test: off
 build_script:
   # Build the compiled extension
   - python setup.py build_ext --inplace >nul 2>nul
-  - pip install wheel twine cx_freeze==6.0b1 six appdirs packaging
+  - pip install wheel twine cx_freeze!=5.1 six appdirs packaging
   - python -c "import cx_Freeze; print(cx_Freeze.__version__)"
   - python -c "import tempfile, os; open(os.path.join(tempfile.gettempdir(), 'urh_releasing'), 'w').close()"
   - python setup.py bdist_wheel >nul 2>nul

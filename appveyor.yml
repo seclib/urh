@@ -31,13 +31,15 @@ install:
 
   - pip install -r requirements.txt
 
+test: off
+
 build_script:
   # Build the compiled extension
-  - python setup.py build_ext --inplace
+  - python setup.py build_ext --inplace > nul
   - pip install wheel twine cx_freeze!=5.1 six appdirs packaging
   - python -c "import tempfile, os; open(os.path.join(tempfile.gettempdir(), 'urh_releasing'), 'w').close()"
   - python setup.py bdist_wheel
-  - python build_cx.py
+  - python build_cx.py > nul
   - dir dist
 
 artifacts:

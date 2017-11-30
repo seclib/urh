@@ -10,6 +10,29 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QPalette, QIcon, QColor
 from PyQt5.QtWidgets import QApplication, QWidget, QStyleFactory
 
+
+# Processes can't write to stdout/stderr on frozen windows apps because they do not exist here
+# if process tries it anyway we get a nasty dialog window popping up, so we redirect the streams to a dummy
+if hasattr(sys, "frozen") and sys.platform == "win32":
+    try:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    except:
+        class DummyStream(object):
+            def __init__(self): pass
+            def write(self, data): pass
+            def read(self, data): pass
+            def flush(self): pass
+            def close(self): pass
+
+        sys.stdout = DummyStream()
+        sys.stderr = DummyStream()
+        sys.stdin = DummyStream()
+        sys.__stdout__ = DummyStream()
+        sys.__stderr__ = DummyStream()
+        sys.__stdin__ = DummyStream()
+
+
 try:
     locale.setlocale(locale.LC_ALL, '')
 except locale.Error as e:
@@ -18,32 +41,9 @@ except locale.Error as e:
 GENERATE_UI = True
 
 
-def fix_stderr_on_windows():
-    # Processes can't write to stdout/stderr on frozen windows apps because they do not exist here
-    # if process tries it anyway we get a nasty dialog window popping up, so we redirect the streams to a dummy
-    if hasattr(sys, "frozen") and sys.platform == "win32":
-        try:
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-        except:
-            class DummyStream(object):
-                def __init__(self): pass
-                def write(self, data): pass
-                def read(self, data): pass
-                def flush(self): pass
-                def close(self): pass
-
-            sys.stdout = DummyStream()
-            sys.stderr = DummyStream()
-            sys.stdin = DummyStream()
-            sys.__stdout__ = DummyStream()
-            sys.__stderr__ = DummyStream()
-            sys.__stdin__ = DummyStream()
 
 
 def main():
-    fix_stderr_on_windows()
-
     if sys.version_info < (3, 4):
         print("You need at least Python 3.4 for this application!")
         sys.exit(1)

@@ -14,8 +14,9 @@ environment:
       PYTHON_VERSION: "3.6.x"
       PYTHON_ARCH: "64"
 
-max_jobs: 2
 
+
+max_jobs: 2
 
 install:
   - ps: if ($env:APPVEYOR_PULL_REQUEST_NUMBER -and $env:APPVEYOR_BUILD_NUMBER -ne ((Invoke-RestMethod `

@@ -31,13 +31,18 @@ test: off
 
 build_script:
   # Build the compiled extension
-  - python setup.py build_ext --inplace >nul 2>nul
+  - python setup.py build_ext --inplace > buildextlog.txt
   - pip install wheel twine cx_freeze!=5.1 six appdirs packaging
   - python -c "import cx_Freeze; print(cx_Freeze.__version__)"
   - python -c "import tempfile, os; open(os.path.join(tempfile.gettempdir(), 'urh_releasing'), 'w').close()"
-  - python setup.py bdist_wheel >nul 2>nul
-  - python build_cx.py >nul 2>nul
+  - python setup.py bdist_wheel > bdist_log.txt
+  - python data\build_cx.py > build_log.txt
   - dir dist
+
+on_failure:
+  - type buildextlog.txt
+  - type bdist_log.txt
+  - type build_log.txt
 
 artifacts:
   # Archive the generated packages in the ci.appveyor.com build report.

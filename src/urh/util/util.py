@@ -209,7 +209,15 @@ def get_name_from_filename(filename: str):
 
 
 def parse_command(command: str):
-    splitted = shlex.split(command, posix=os.name != "nt")
+    try:
+        posix = os.name != "nt"
+        splitted = shlex.split(command, posix=posix)
+        # strip quotations
+        if not posix:
+            splitted = [s.replace('"', '').replace("'", "") for s in splitted]
+    except ValueError:
+        splitted = []   # e.g. when missing matching "
+
     if len(splitted) == 0:
         return "", []
 
@@ -250,4 +258,4 @@ def validate_command(command: str):
         return False
 
     cmd, _ = parse_command(command)
-    return shutil.which(cmd[0]) is not None
+    return shutil.which(cmd) is not None

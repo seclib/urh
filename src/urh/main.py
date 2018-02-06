@@ -70,8 +70,8 @@ def main():
 
     if GENERATE_UI and not hasattr(sys, 'frozen'):
         try:
-            sys.path.insert(0, prefix)
-            from ui import generate_ui
+            sys.path.insert(0, os.path.join(prefix))
+            from data import generate_ui
             generate_ui.gen()
         except (ImportError, FileNotFoundError):
             print("Will not regenerate UI, because script can't be found. This is okay in release.")
@@ -103,7 +103,7 @@ def main():
         os.environ['QT_QPA_PLATFORMTHEME'] = 'fusion'
 
     app = QApplication(["URH"] + sys.argv[1:])
-    app.setWindowIcon(QIcon(":/icons/data/icons/appicon.png"))
+    app.setWindowIcon(QIcon(":/icons/icons/appicon.png"))
 
     util.set_icon_theme()
 

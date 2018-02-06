@@ -132,7 +132,7 @@ class MessageType(list):
                                                     "assigned_by_logic_analyzer": "1" if self.assigned_by_logic_analyzer else "0"})
         for lbl in self:
             try:
-                result.append(lbl.to_xml(-1))
+                result.append(lbl.to_xml())
             except TypeError:
                 logger.error("Could not save label: " + str(lbl))
 
@@ -141,6 +141,11 @@ class MessageType(list):
         return result
 
     def change_field_type_of_label(self, label: ProtocolLabel, field_type: FieldType):
+        if not isinstance(label, ProtocolLabel) and hasattr(label, "field_type"):
+            # In case of SimulatorProtocolLabel
+            label.field_type = field_type
+            return
+
         is_crc_type = field_type is not None and field_type.function == FieldType.Function.CHECKSUM
         if is_crc_type != isinstance(label, ChecksumLabel):
             self[self.index(label)] = self.__create_label(label.name, label.start, label.end - 1,

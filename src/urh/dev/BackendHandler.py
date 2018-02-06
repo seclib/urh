@@ -5,6 +5,8 @@ import os
 import sys
 from enum import Enum
 
+from urh.util.Logger import logger
+
 
 class Backends(Enum):
     none = 0
@@ -90,8 +92,11 @@ class BackendHandler(object):
         self.gnuradio_install_dir = constants.SETTINGS.value('gnuradio_install_dir', "")
         self.use_gnuradio_install_dir = constants.SETTINGS.value('use_gnuradio_install_dir', os.name == "nt", bool)
 
-        self.gnuradio_installed = False
-        self.set_gnuradio_installed_status()
+        self.gnuradio_is_installed = constants.SETTINGS.value('gnuradio_is_installed', -1, int)
+        if self.gnuradio_is_installed == -1:
+            self.set_gnuradio_installed_status()
+        else:
+            self.gnuradio_is_installed = bool(self.gnuradio_is_installed)
 
         if not hasattr(sys, 'frozen'):
             self.path = os.path.dirname(os.path.realpath(__file__))
@@ -151,27 +156,36 @@ class BackendHandler(object):
         except ImportError:
             return False
 
+    @property
+    def __sdrplay_native_enabled(self) -> bool:
+        try:
+            from urh.dev.native.lib import sdrplay
+            return True
+        except ImportError:
+            return False
+
     def set_gnuradio_installed_status(self):
         if self.use_gnuradio_install_dir:
             # We are probably on windows with a bundled gnuradio installation
             bin_dir = os.path.join(self.gnuradio_install_dir, "bin")
             site_packages_dir = os.path.join(self.gnuradio_install_dir, "lib", "site-packages")
             if all(os.path.isdir(dir) for dir in [self.gnuradio_install_dir, bin_dir, site_packages_dir]):
-                constants.SETTINGS.setValue("gnuradio_install_dir", self.gnuradio_install_dir)
-                self.gnuradio_installed = True
-                return
+                self.gnuradio_is_installed = True
             else:
-                self.gnuradio_installed = False
-                return
+                self.gnuradio_is_installed = False
         else:
             if os.path.isfile(self.python2_exe) and os.access(self.python2_exe, os.X_OK):
-                # Use shell=True to prevent console window popping up on windows
-                self.gnuradio_installed = call('"{0}" -c "import gnuradio"'.format(self.python2_exe),
-                                               shell=True, stderr=DEVNULL) == 0
-                constants.SETTINGS.setValue("python2_exe", self.python2_exe)
+                try:
+                    # Use shell=True to prevent console window popping up on windows
+                    self.gnuradio_is_installed = call('"{0}" -c "import gnuradio"'.format(self.python2_exe),
+                                                      shell=True, stderr=DEVNULL) == 0
+                except OSError as e:
+                    logger.error("Could not determine GNU Radio install status. Assuming true. Error: "+str(e))
+                    self.gnuradio_is_installed = True
             else:
-                self.gnuradio_installed = False
-                return
+                self.gnuradio_is_installed = False
+
+        constants.SETTINGS.setValue("gnuradio_is_installed", int(self.gnuradio_is_installed))
 
     def __device_has_gr_scripts(self, devname: str):
         if not hasattr(sys, "frozen"):
@@ -192,7 +206,7 @@ class BackendHandler(object):
     def __avail_backends_for_device(self, devname: str):
         backends = set()
         supports_rx, supports_tx = self.__device_has_gr_scripts(devname)
-        if self.gnuradio_installed and (supports_rx or supports_tx):
+        if self.gnuradio_is_installed and (supports_rx or supports_tx):
             backends.add(Backends.grc)
 
         if devname.lower() == "hackrf" and self.__hackrf_native_enabled:
@@ -216,6 +230,10 @@ class BackendHandler(object):
             supports_rx, supports_tx = True, False
             backends.add(Backends.native)
 
+        if devname.lower() == "sdrplay" and self.__sdrplay_native_enabled:
+            supports_rx, supports_tx = True, False
+            backends.add(Backends.native)
+
         return backends, supports_rx, supports_tx
 
     def get_backends(self):
@@ -235,8 +253,3 @@ class BackendHandler(object):
                     return attempt
 
         return ""
-
-
-if __name__ == "__main__":
-    bh = BackendHandler()
-    print(bh.device_backends)

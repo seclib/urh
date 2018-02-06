@@ -16,30 +16,49 @@ from urh.util.SettingsProxy import SettingsProxy
 
 class NetworkSDRInterfacePlugin(SDRPlugin):
     NETWORK_SDR_NAME = "Network SDR"  # Display text for device combo box
-    rcv_index_changed = pyqtSignal(int, int)  # int arguments are just for compatibility with native and grc backend
     show_proto_sniff_dialog_clicked = pyqtSignal()
     sending_status_changed = pyqtSignal(bool)
     sending_stop_requested = pyqtSignal()
     current_send_message_changed = pyqtSignal(int)
 
+    send_connection_established = pyqtSignal()
+    receive_server_started = pyqtSignal()
+    error_occurred = pyqtSignal(str)
+
+    data_received = pyqtSignal(np.ndarray)
+
     class MyTCPHandler(socketserver.BaseRequestHandler):
         def handle(self):
-            received = self.request.recv(4096)
+            received = self.request.recv(65536 * 8)
             self.data = received
+
             while received:
-                received = self.request.recv(4096)
+                received = self.request.recv(65536 * 8)
                 self.data += received
-            # print("{} wrote:".format(self.client_address[0]))
-            # print(self.data)
+
+            if len(self.data) == 0:
+                return
+
             if hasattr(self.server, "received_bits"):
-                self.server.received_bits.append(NetworkSDRInterfacePlugin.bytearray_to_bit_str(self.data))
+                for data in filter(None, self.data.split(b"\n")):
+                    self.server.received_bits.append(NetworkSDRInterfacePlugin.bytearray_to_bit_str(data))
+                # when receiving bits, the protocol sniffer will read them for property
+                if self.server.emit_data_received_signal:
+                    self.server.signal.emit(np.ndarray([]))
             else:
+                while len(self.data) % 8 != 0:
+                    self.data += self.request.recv(len(self.data) % 8)
+
                 received = np.frombuffer(self.data, dtype=np.complex64)
+
                 if len(received) + self.server.current_receive_index >= len(self.server.receive_buffer):
                     self.server.current_receive_index = 0
+
                 self.server.receive_buffer[
                 self.server.current_receive_index:self.server.current_receive_index + len(received)] = received
                 self.server.current_receive_index += len(received)
+                if self.server.emit_data_received_signal:
+                    self.server.signal.emit(received)
 
     def __init__(self, raw_mode=False, resume_on_full_receive_buffer=False, spectrum=False, sending=False):
         """
@@ -55,11 +74,6 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
         self.client_port = self.qsettings.value("client_port", defaultValue=2222, type=int)
         self.server_port = self.qsettings.value("server_port", defaultValue=4444, type=int)
 
-        self.receive_check_timer = QTimer()
-        self.receive_check_timer.setInterval(250)
-        # need to make the connect for the time in constructor, as create connects is called elsewhere in base class
-        self.receive_check_timer.timeout.connect(self.__emit_rcv_index_changed)
-
         self.is_in_spectrum_mode = spectrum
         self.resume_on_full_receive_buffer = resume_on_full_receive_buffer
         self.__is_sending = False
@@ -72,6 +86,8 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
         self.sending_is_continuous = False
         self.continuous_send_ring_buffer = None
         self.num_samples_to_send = None  # Only used for continuous send mode
+
+        self.emit_data_received_signal = False
 
         self.raw_mode = raw_mode
         if not sending:
@@ -149,20 +165,23 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
 
     def start_tcp_server_for_receiving(self):
         self.server = socketserver.TCPServer((self.server_ip, self.server_port), self.MyTCPHandler)
+        self.server.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         if self.raw_mode:
             self.server.receive_buffer = self.receive_buffer
             self.server.current_receive_index = 0
         else:
             self.server.received_bits = self.received_bits
 
-        self.receive_check_timer.start()
+        self.server.signal = self.data_received
+        self.server.emit_data_received_signal = self.emit_data_received_signal
 
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()
 
+        self.receive_server_started.emit()
+
     def stop_tcp_server(self):
-        self.receive_check_timer.stop()
         if hasattr(self, "server"):
             logger.debug("Shutdown TCP server")
             self.server.shutdown()
@@ -170,14 +189,10 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
         if hasattr(self, "server_thread"):
             self.server_thread.join()
 
-    def send_data(self, data) -> str:
-        # Create a socket (SOCK_STREAM means a TCP socket)
+    def send_data(self, data, sock: socket.socket) -> str:
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                # Connect to server and send data
-                sock.connect((self.client_ip, self.client_port))
-                sock.sendall(data)
-                return ""
+            sock.sendall(data)
+            return ""
         except Exception as e:
             return str(e)
 
@@ -185,31 +200,79 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
         byte_data = data.tostring()
         rng = iter(int, 1) if num_repeats <= 0 else range(0, num_repeats)  # <= 0 = forever
 
-        for _ in rng:
-            if self.__sending_interrupt_requested:
-                break
-            self.send_data(byte_data)
-            self.current_sent_sample = len(data)
-            self.current_sending_repeat += 1
+        sock = self.prepare_send_connection()
+        if sock is None:
+            return
+
+        try:
+            for _ in rng:
+                if self.__sending_interrupt_requested:
+                    break
+                self.send_data(byte_data, sock)
+                self.current_sent_sample = len(data)
+                self.current_sending_repeat += 1
+        finally:
+            self.shutdown_socket(sock)
+
+    def prepare_send_connection(self):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.connect((self.client_ip, self.client_port))
+            self.send_connection_established.emit()
+            return sock
+        except Exception as e:
+            msg = "Could not establish connection " + str(e)
+            self.error_occurred.emit(msg)
+            logger.error(msg)
+            return None
+
+    def shutdown_socket(self, sock):
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        sock.close()
 
     def send_raw_data_continuously(self, ring_buffer: RingBuffer, num_samples_to_send: int, num_repeats: int):
         rng = iter(int, 1) if num_repeats <= 0 else range(0, num_repeats)  # <= 0 = forever
         samples_per_iteration = 65536 // 2
+        sock = self.prepare_send_connection()
+        if sock is None:
+            return
 
-        for _ in rng:
-            if self.__sending_interrupt_requested:
-                break
-            while self.current_sent_sample < num_samples_to_send:
+        try:
+            for _ in rng:
+
                 if self.__sending_interrupt_requested:
                     break
-                n = max(0, min(samples_per_iteration, num_samples_to_send - self.current_sent_sample))
-                data = ring_buffer.pop(n, ensure_even_length=True)
-                self.send_data(data)
-                self.current_sent_sample += len(data)
-            self.current_sending_repeat += 1
-            self.current_sent_sample = 0
 
-        self.current_sent_sample = num_samples_to_send
+                while num_samples_to_send is None or self.current_sent_sample < num_samples_to_send:
+                    while ring_buffer.is_empty and not self.__sending_interrupt_requested:
+                        time.sleep(0.1)
+
+                    if self.__sending_interrupt_requested:
+                        break
+
+                    if num_samples_to_send is None:
+                        n = samples_per_iteration
+                    else:
+                        n = max(0, min(samples_per_iteration, num_samples_to_send - self.current_sent_sample))
+
+                    data = ring_buffer.pop(n, ensure_even_length=True)
+                    if len(data) > 0:
+                        self.send_data(data, sock)
+                        self.current_sent_sample += len(data)
+
+                    time.sleep(0.0000001)
+
+                self.current_sending_repeat += 1
+                self.current_sent_sample = 0
+
+            self.current_sent_sample = num_samples_to_send
+        finally:
+            self.shutdown_socket(sock)
 
     def __send_messages(self, messages, sample_rates):
         """
@@ -221,26 +284,33 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
         :return:
         """
         self.is_sending = True
-        for i, msg in enumerate(messages):
-            if self.__sending_interrupt_requested:
-                break
-            assert isinstance(msg, Message)
-            wait_time = msg.pause / sample_rates[i]
-
-            self.current_send_message_changed.emit(i)
-            error = self.send_data(self.bit_str_to_bytearray(msg.encoded_bits_str))
-            if not error:
-                logger.debug("Sent message {0}/{1}".format(i + 1, len(messages)))
-                logger.debug("Waiting message pause: {0:.2f}s".format(wait_time))
+        sock = self.prepare_send_connection()
+        if sock is None:
+            return
+        try:
+            for i, msg in enumerate(messages):
                 if self.__sending_interrupt_requested:
                     break
-                time.sleep(wait_time)
-            else:
-                self.is_sending = False
-                Errors.generic_error("Could not connect to {0}:{1}".format(self.client_ip, self.client_port), msg=error)
-                break
-        logger.debug("Sending finished")
-        self.is_sending = False
+                assert isinstance(msg, Message)
+                wait_time = msg.pause / sample_rates[i]
+
+                self.current_send_message_changed.emit(i)
+                error = self.send_data(self.bit_str_to_bytearray(msg.encoded_bits_str) + b"\n", sock)
+                if not error:
+                    logger.debug("Sent message {0}/{1}".format(i + 1, len(messages)))
+                    logger.debug("Waiting message pause: {0:.2f}s".format(wait_time))
+                    if self.__sending_interrupt_requested:
+                        break
+                    time.sleep(wait_time)
+                else:
+                    self.is_sending = False
+                    Errors.generic_error("Could not connect to {0}:{1}".format(self.client_ip, self.client_port),
+                                         msg=error)
+                    break
+            logger.debug("Sending finished")
+            self.is_sending = False
+        finally:
+            self.shutdown_socket(sock)
 
     def start_message_sending_thread(self, messages, sample_rates):
         """
@@ -271,6 +341,10 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
 
     def stop_sending_thread(self):
         self.__sending_interrupt_requested = True
+
+        if hasattr(self, "sending_thread"):
+            self.sending_thread.join()
+
         self.sending_stop_requested.emit()
 
     @staticmethod
@@ -300,11 +374,6 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
     def on_spinbox_server_port_editing_finished(self):
         self.server_port = self.settings_frame.spinBoxServerPort.value()
         self.qsettings.setValue('server_port', str(self.server_port))
-
-    def __emit_rcv_index_changed(self):
-        # for updating received bits in protocol sniffer
-        if hasattr(self, "received_bits") and self.received_bits:
-            self.rcv_index_changed.emit(0, 0)  # int arguments are just for compatibility with native and grc backend
 
     @pyqtSlot(str)
     def on_lopenprotosniffer_link_activated(self, link: str):

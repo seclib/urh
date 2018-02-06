@@ -1,18 +1,24 @@
 import copy
 
-from PyQt5.QtCore import QPoint, Qt
+from PyQt5.QtCore import QPoint, Qt, QModelIndex
+from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QContextMenuEvent
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMenu
 
 from tests.QtTestCase import QtTestCase
+from urh.controller.CompareFrameController import CompareFrameController
+from urh.controller.MainController import MainController
 from urh.signalprocessing.FieldType import FieldType
+from urh.ui.views.LabelValueTableView import LabelValueTableView
 
 
 class TestAnalysisTabGUI(QtTestCase):
     def setUp(self):
         super().setUp()
         self.add_signal_to_form("two_participants.complex")
-        self.cfc = self.form.compare_frame_controller
+        assert isinstance(self.form, MainController)
+        self.cfc = self.form.compare_frame_controller  # type: CompareFrameController
         self.form.signal_tab_controller.signal_frames[0].ui.spinBoxCenterOffset.setValue(0)
         self.form.signal_tab_controller.signal_frames[0].ui.spinBoxCenterOffset.editingFinished.emit()
 
@@ -211,6 +217,37 @@ class TestAnalysisTabGUI(QtTestCase):
         QApplication.instance().processEvents()
         self.assertEqual(len(self.cfc.active_group_ids), 1)
 
+    def test_tree_view_drop_mime_data(self):
+        # Drop signal to new group
+        self.cfc.proto_tree_model.addGroup("Test group")
+        self.assertEqual(len(self.cfc.groups), 2)
+        self.assertEqual(self.cfc.groups[0].num_protocols, 1)
+        self.assertEqual(self.cfc.groups[1].num_protocols, 0)
+        self.cfc.proto_tree_model.update()
+
+        self.cfc.show()
+        model = self.cfc.proto_tree_model
+
+        group_1_index = model.index(0, 0, QModelIndex())
+        signal_index = model.index(0, 0, group_1_index)
+
+        group_2_index = model.index(1, 0, QModelIndex())
+        self.assertEqual(group_2_index.internalPointer().group.name, "Test group")
+        mimedata = model.mimeData([signal_index])
+        model.dropMimeData(mimedata, Qt.MoveAction, 0, 0, group_2_index)
+        self.assertEqual(self.cfc.groups[0].num_protocols, 0)
+        self.assertEqual(self.cfc.groups[1].num_protocols, 1)
+
+        # Drop group to another position
+        self.assertEqual(self.cfc.groups[0].name, "New Group")
+        self.assertEqual(self.cfc.groups[1].name, "Test group")
+        mimedata = model.mimeData([group_2_index])
+        model.dropMimeData(mimedata, Qt.MoveAction, 0, 0, group_1_index)
+        self.assertEqual(self.cfc.groups[0].name, "Test group")
+        self.assertEqual(self.cfc.groups[0].num_protocols, 1)
+        self.assertEqual(self.cfc.groups[1].name, "New Group")
+        self.assertEqual(self.cfc.groups[1].num_protocols, 0)
+
     def test_label_selection_changed(self):
         self.assertEqual(self.cfc.ui.tblViewProtocol.horizontalScrollBar().value(), 0)
         self.cfc.add_protocol_label(40, 60, 2, 0, edit_label_name=False)
@@ -253,3 +290,58 @@ class TestAnalysisTabGUI(QtTestCase):
         menu_action_names = [action.text() for action in menu.actions() if action.text()]
         for action in menu_action_names:
             self.assertIn(action, actions)
+
+    def test_label_value_table(self):
+        table = self.cfc.ui.tblLabelValues  # type: LabelValueTableView
+        model = table.model()
+        self.assertEqual(model.rowCount(), 0)
+        self.cfc.add_protocol_label(45, 56, 0, 0, edit_label_name=False)
+        self.assertEqual(model.rowCount(), 1)
+        self.assertEqual(model.data(model.index(0, 1)), "Bit")
+        self.assertEqual(model.data(model.index(0, 3)), "000011001110")
+
+        model.setData(model.index(0, 1), 1, role=Qt.EditRole)
+        self.assertEqual(model.data(model.index(0, 1)), "Hex")
+        self.assertEqual(model.data(model.index(0, 3)), "0ce")
+
+        model.setData(model.index(0, 1), 2, role=Qt.EditRole)
+        self.assertEqual(model.data(model.index(0, 1)), "ASCII")
+
+        model.setData(model.index(0, 1), 3, role=Qt.EditRole)
+        self.assertEqual(model.data(model.index(0, 1)), "Decimal")
+        self.assertEqual(model.data(model.index(0, 3)), "206")
+
+        model.setData(model.index(0, 1), 4, role=Qt.EditRole)
+        self.assertEqual(model.data(model.index(0, 1)), "BCD")
+        self.assertEqual(model.data(model.index(0, 3)), "0??")
+
+        self.assertIn("display type", model.data(model.index(0, 1), Qt.ToolTipRole))
+        self.assertIn("bit order", model.data(model.index(0, 2), Qt.ToolTipRole))
+
+    def test_label_list_view(self):
+        menus_before = [w for w in QApplication.topLevelWidgets() if isinstance(w, QMenu)]
+
+        global context_menu
+        context_menu = None # type: QMenu
+        def on_timeout():
+            global context_menu
+            context_menu = next(w for w in QApplication.topLevelWidgets()
+                        if w.parent() is None and isinstance(w, QMenu) and w not in menus_before)
+            context_menu.close()
+
+        self.cfc.add_protocol_label(10, 20, 0, 0, False)
+        self.cfc.add_message_type()
+        self.assertEqual(self.cfc.ui.cbMessagetypes.count(), 2)
+
+        self.cfc.ui.tblViewProtocol.selectRow(0)
+        self.assertEqual(self.cfc.ui.listViewLabelNames.model().rowCount(), 1)
+
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(on_timeout)
+        timer.start(1)
+        self.cfc.ui.listViewLabelNames.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Mouse, QPoint(0,0)))
+
+        names = [action.text() for action in context_menu.actions()]
+        self.assertIn("Edit Protocol Label...", names)
+

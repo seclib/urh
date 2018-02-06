@@ -10,7 +10,6 @@ class USRP(Device):
     READ_SAMPLES = 16384
     SEND_SAMPLES = 16384 * 2
 
-    BYTES_PER_SAMPLE = 8
     DEVICE_LIB = usrp
     ASYNCHRONOUS = False
 
@@ -48,8 +47,7 @@ class USRP(Device):
     def prepare_sync_receive(cls, ctrl_connection: Connection):
         ctrl_connection.send("Initializing stream...")
         usrp.setup_stream()
-        usrp.start_stream(cls.READ_SAMPLES)
-        ctrl_connection.send("Initialized stream")
+        return usrp.start_stream(cls.READ_SAMPLES)
 
     @classmethod
     def receive_sync(cls, data_conn: Connection):
@@ -61,6 +59,7 @@ class USRP(Device):
         usrp.setup_stream()
         ret = usrp.start_stream(0)
         ctrl_connection.send("Initialize stream:{0}".format(ret))
+        return ret
 
     @classmethod
     def send_sync(cls, data):
@@ -90,12 +89,8 @@ class USRP(Device):
 
 
     @staticmethod
-    def unpack_complex(buffer, nvalues: int):
-        result = np.empty(nvalues, dtype=np.complex64)
-        unpacked = np.frombuffer(buffer, dtype=[('r', np.float32), ('i', np.float32)])
-        result.real = unpacked["r"]
-        result.imag = unpacked["i"]
-        return result
+    def unpack_complex(buffer):
+        return np.frombuffer(buffer, dtype=np.complex64)
 
     @staticmethod
     def pack_complex(complex_samples: np.ndarray):

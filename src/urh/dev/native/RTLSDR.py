@@ -13,7 +13,6 @@ from urh.util.Logger import logger
 
 
 class RTLSDR(Device):
-    BYTES_PER_SAMPLE = 2  # RTLSDR device produces 8 bit unsigned IQ data
     DEVICE_LIB = rtlsdr
     ASYNCHRONOUS = False
     DEVICE_METHODS = Device.DEVICE_METHODS.copy()
@@ -36,7 +35,7 @@ class RTLSDR(Device):
     def prepare_sync_receive(cls, ctrl_connection: Connection):
         ret = rtlsdr.reset_buffer()
         ctrl_connection.send("RESET_BUFFER:" + str(ret))
-        return ret == 0
+        return ret
 
     @classmethod
     def receive_sync(cls, data_conn: Connection):
@@ -82,14 +81,14 @@ class RTLSDR(Device):
         super().set_device_gain(10 * gain)
 
     @staticmethod
-    def unpack_complex(buffer, nvalues: int):
+    def unpack_complex(buffer):
         """
         The raw, captured IQ data is 8 bit unsigned data.
 
         :return:
         """
-        result = np.empty(nvalues, dtype=np.complex64)
         unpacked = np.frombuffer(buffer, dtype=[('r', np.uint8), ('i', np.uint8)])
+        result = np.empty(len(unpacked), dtype=np.complex64)
         result.real = (unpacked['r'] / 127.5) - 1.0
         result.imag = (unpacked['i'] / 127.5) - 1.0
         return result

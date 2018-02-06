@@ -33,8 +33,7 @@ class Device(QObject):
         SET_CHANNEL_INDEX = 9
         SET_ANTENNA_INDEX = 10
 
-    BYTES_PER_SAMPLE = None
-    rcv_index_changed = pyqtSignal(int, int)
+    data_received = pyqtSignal(np.ndarray)
 
     ASYNCHRONOUS = False
 
@@ -99,7 +98,7 @@ class Device(QObject):
         raise NotImplementedError("Overwrite this method in subclass!")
 
     @classmethod
-    def enter_async_receive_mode(cls, data_connection: Connection):
+    def enter_async_receive_mode(cls, data_connection: Connection, ctrl_connection: Connection) -> int:
         raise NotImplementedError("Overwrite this method in subclass!")
 
     @classmethod
@@ -125,6 +124,7 @@ class Device(QObject):
     @classmethod
     def device_receive(cls, data_connection: Connection, ctrl_connection: Connection, dev_parameters: OrderedDict):
         if not cls.init_device(ctrl_connection, is_tx=False, parameters=dev_parameters):
+            ctrl_connection.send("failed to start rx mode")
             return False
 
         try:
@@ -135,11 +135,16 @@ class Device(QObject):
             pass
 
         if cls.ASYNCHRONOUS:
-            cls.enter_async_receive_mode(data_connection)
+            ret = cls.enter_async_receive_mode(data_connection, ctrl_connection)
         else:
-            cls.prepare_sync_receive(ctrl_connection)
+            ret = cls.prepare_sync_receive(ctrl_connection)
+
+        if ret != 0:
+            ctrl_connection.send("failed to start rx mode")
+            return False
 
         exit_requested = False
+        ctrl_connection.send("successfully started rx mode")
 
         while not exit_requested:
             if cls.ASYNCHRONOUS:
@@ -159,17 +164,24 @@ class Device(QObject):
     @classmethod
     def device_send(cls, ctrl_connection: Connection, send_config: SendConfig, dev_parameters: OrderedDict):
         if not cls.init_device(ctrl_connection, is_tx=True, parameters=dev_parameters):
+            ctrl_connection.send("failed to start tx mode")
             return False
 
         if cls.ASYNCHRONOUS:
-            cls.enter_async_send_mode(send_config.get_data_to_send)
+            ret = cls.enter_async_send_mode(send_config.get_data_to_send)
         else:
-            cls.prepare_sync_send(ctrl_connection)
+            ret = cls.prepare_sync_send(ctrl_connection)
+
+        if ret != 0:
+            ctrl_connection.send("failed to start tx mode")
+            return False
 
         exit_requested = False
         buffer_size = cls.CONTINUOUS_SEND_BUFFER_SIZE if send_config.continuous else cls.SEND_BUFFER_SIZE
         if not cls.ASYNCHRONOUS and buffer_size == 0:
             logger.warning("Send buffer size is zero!")
+
+        ctrl_connection.send("successfully started tx mode")
 
         while not exit_requested and not send_config.sending_is_finished():
             if cls.ASYNCHRONOUS:
@@ -229,6 +241,8 @@ class Device(QObject):
         self.parent_ctrl_conn, self.child_ctrl_conn = Pipe()
         self.send_buffer = None
         self.send_buffer_reader = None
+
+        self.emit_data_received_signal = False  # used for protocol sniffer
 
         self.samples_to_send = np.array([], dtype=np.complex64)
         self.sending_repeats = 1  # How often shall the sending sequence be repeated? 0 = forever
@@ -537,10 +551,12 @@ class Device(QObject):
                 self.receive_process.join()
 
         self.is_receiving = False
-        self.parent_ctrl_conn.close()
-        self.parent_data_conn.close()
-        self.child_ctrl_conn.close()
-        self.child_data_conn.close()
+        for connection in (self.parent_ctrl_conn, self.parent_data_conn, self.child_ctrl_conn, self.child_data_conn):
+            try:
+                connection.close()
+            except OSError as e:
+                logger.exception(e)
+
 
     def start_tx_mode(self, samples_to_send: np.ndarray = None, repeats=None, resume=False):
         self.is_transmitting = True
@@ -572,11 +588,18 @@ class Device(QObject):
                 self.transmit_process.join()
 
         self.is_transmitting = False
-        self.parent_ctrl_conn.close()
-        self.child_ctrl_conn.close()
+        try:
+            self.parent_ctrl_conn.close()
+        except OSError as e:
+            logger.exception(e)
+
+        try:
+            self.child_ctrl_conn.close()
+        except OSError as e:
+            logger.exception(e)
 
     @staticmethod
-    def unpack_complex(buffer, nvalues):
+    def unpack_complex(buffer):
         pass
 
     @staticmethod
@@ -603,33 +626,33 @@ class Device(QObject):
         while self.is_receiving:
             try:
                 byte_buffer = self.parent_data_conn.recv_bytes()
-
-                n_samples = len(byte_buffer) // self.BYTES_PER_SAMPLE
-                if n_samples > 0:
-                    if self.current_recv_index + n_samples >= len(self.receive_buffer):
-                        if self.resume_on_full_receive_buffer:
-                            self.current_recv_index = 0
-                            if n_samples >= len(self.receive_buffer):
-                                n_samples = len(self.receive_buffer) - 1
-                        else:
-                            self.stop_rx_mode(
-                                "Receiving buffer is full {0}/{1}".format(self.current_recv_index + n_samples,
-                                                                          len(self.receive_buffer)))
-                            return
-
-                    end = n_samples * self.BYTES_PER_SAMPLE
-                    self.receive_buffer[self.current_recv_index:self.current_recv_index + n_samples] = \
-                        self.unpack_complex(byte_buffer[:end], n_samples)
-
-                    old_index = self.current_recv_index
-                    self.current_recv_index += n_samples
-
-                    self.rcv_index_changed.emit(old_index, self.current_recv_index)
-            except (BrokenPipeError, OSError):
-                pass
+                samples = self.unpack_complex(byte_buffer)
+                n_samples = len(samples)
+                if n_samples == 0:
+                    continue
+            except OSError as e:
+                logger.exception(e)
+                continue
             except EOFError:
                 logger.info("EOF Error: Ending receive thread")
                 break
+
+            if self.current_recv_index + n_samples >= len(self.receive_buffer):
+                if self.resume_on_full_receive_buffer:
+                    self.current_recv_index = 0
+                    if n_samples >= len(self.receive_buffer):
+                        n_samples = len(self.receive_buffer) - 1
+                else:
+                    self.stop_rx_mode(
+                        "Receiving buffer is full {0}/{1}".format(self.current_recv_index + n_samples,
+                                                                  len(self.receive_buffer)))
+                    return
+
+            self.receive_buffer[self.current_recv_index:self.current_recv_index + n_samples] = samples[:n_samples]
+            self.current_recv_index += n_samples
+
+            if self.emit_data_received_signal:
+                self.data_received.emit(samples)
 
         logger.debug("Exiting read_receive_queue thread.")
 

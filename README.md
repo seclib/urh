@@ -1,14 +1,13 @@
-# Universal Radio Hacker
-[![Linux Build Status](https://img.shields.io/travis/jopohl/urh/master.svg?label=Linux)](https://travis-ci.org/jopohl/urh)
-[![Windows Build status](https://img.shields.io/appveyor/ci/jopohl/urh/master.svg?label=Windows)](https://ci.appveyor.com/project/jopohl/urh/branch/master)
-[![OSX Build Status](https://img.shields.io/circleci/project/github/jopohl/urh/master.svg?label=OSX)](https://circleci.com/gh/jopohl/urh/tree/master)
-[![PyPI version](https://badge.fury.io/py/urh.svg)](https://pypi.python.org/pypi/urh)
-[![codecov](https://codecov.io/gh/jopohl/urh/branch/master/graph/badge.svg)](https://codecov.io/gh/jopohl/urh)
-[![Slack](https://img.shields.io/badge/chat-on%20slack-blue.svg)](https://join.slack.com/t/stralsundsecurity/shared_invite/enQtMjEwOTIxNzMzODc3LWU4ZWIzMTQ3NDAyNjkzODBhZTJiZDNmN2U0MTA4ZTM1MjhhNTNiYTc4YzQ5MDk2NjU5YzMxOWJmMDQyZDczYjg)
-[![Blackhat Arsenal 2017](https://rawgit.com/toolswatch/badges/master/arsenal/2017.svg)](http://www.toolswatch.org/2017/06/the-black-hat-arsenal-usa-2017-phenomenal-line-up-announced/)
+# Universal Radio Hacker [![Blackhat Arsenal 2017](https://rawgit.com/toolswatch/badges/master/arsenal/2017.svg)](http://www.toolswatch.org/2017/06/the-black-hat-arsenal-usa-2017-phenomenal-line-up-announced/)
 
 
-The Universal Radio Hacker is a software for investigating unknown wireless protocols. Features include
+| Linux  | Windows | OSX | Test Coverage |
+| ------------- | ------------- | ------------- | -------- | 
+|[![Build Status](https://travis-ci.org/jopohl/urh.svg?branch=master)](https://travis-ci.org/jopohl/urh) | [![Build status](https://ci.appveyor.com/api/projects/status/8gxwx98ytrl5y3kt/branch/master?svg=true)](https://ci.appveyor.com/project/jopohl/urh/branch/master) | [![CircleCI](https://circleci.com/gh/jopohl/urh/tree/master.svg?style=svg)](https://circleci.com/gh/jopohl/urh/tree/master) | [![Coverage Status](https://coveralls.io/repos/github/jopohl/urh/badge.svg?branch=master)](https://coveralls.io/github/jopohl/urh?branch=master) |
+
+
+
+The Universal Radio Hacker (URH) is a software for investigating unknown wireless protocols. Features include
 
 * __hardware interfaces__ for common Software Defined Radios
 * __easy demodulation__ of signals
@@ -18,29 +17,21 @@ The Universal Radio Hacker is a software for investigating unknown wireless prot
 * __fuzzing component__ to find security leaks
 * __modulation support__ to inject the data back into the system
 
-Check out the [wiki](https://github.com/jopohl/urh/wiki) for more information and supported devices.
+To get started, download the [official userguide (PDF)](https://github.com/jopohl/urh/raw/master/data/userguide.pdf), watch the [demonstration videos (YouTube)](https://www.youtube.com/watch?v=kuubkTDAxwA)
+or check out the [wiki](https://github.com/jopohl/urh/wiki) for more information and supported devices. Scroll down this page to learn how to install URH on your system.
 
-Like to see things in action? Watch URH on YouTube!
+Want to stay in touch? [![Slack](https://img.shields.io/badge/chat-on%20slack-blue.svg)](https://join.slack.com/t/stralsundsecurity/shared_invite/enQtMjEwOTIxNzMzODc3LWU4ZWIzMTQ3NDAyNjkzODBhZTJiZDNmN2U0MTA4ZTM1MjhhNTNiYTc4YzQ5MDk2NjU5YzMxOWJmMDQyZDczYjg)
 
-[![Youtube Image](http://i.imgur.com/5HGzP2T.png)](https://www.youtube.com/watch?v=kuubkTDAxwA)
+To support the development you can star this repository or buy us a coffee: [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=6WDFF59DL56Z2)
 
-Want to stay in touch? Join our [Slack Channel](https://join.slack.com/t/stralsundsecurity/shared_invite/MjEwOTIxNzMzODc3LTE0OTk3NTM3NzUtNDU0YWJkNGM5Yw)!
-
-Support the development: [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=6WDFF59DL56Z2)
-
-# Installation
+## Installation
 Universal Radio Hacker can be installed via _pip_ or using the _package manager_ of your distribution (if included).
 Furthermore, you can [install urh from source](#installing-from-source) or run it  [without installation](#without-installation) directly from source. Below you find more specific installation instructions for:
-- Linux Distributions:
-  - [Arch Linux](#arch-linux)
-  - [Ubuntu/Debian](#ubuntudebian)
-  - [Gentoo/Pentoo](#gentoopentoo)
-  - [Fedora 25+](#fedora-25)
-  - [openSUSE](#opensuse)
+- [Linux](#linux)
 - [Windows](#windows)
 - [Mac OS X](#mac-os-x)
 
-## Dependencies
+### Dependencies
 
 | Required  | Optional |
 | ------------- | ------------- |
@@ -49,22 +40,28 @@ Furthermore, you can [install urh from source](#installing-from-source) or run i
 | python-psutil  | libairspy (for native AirSPy support)  |
 | python-zmq  | liblimesdr (for native LimeSDR support)  |
 | PyQt5  | libuhd (for native USRP suppport)  |
-| C++ Compiler | rfcat (for RfCat plugin to send e.g. with YardStick One) |
+| C++ Compiler | libsdrplay (for native SDRplay support) |
+| | rfcat (for RfCat plugin to send e.g. with YardStick One) |
 |   | gnuradio / gnuradio-osmosdr (for GNU Radio device backends)  |
 
 
-## Installation examples
-### Arch Linux
-```bash
-yaourt -S urh
-```
+### Linux
+#### Via Package Manager
+If you run any of the following linux distributions you can install URH using your package manager.
 
-### Ubuntu/Debian
-If you want to use native device backends, make sure you install the __-dev__ package for your desired SDRs, that is:
-- AirSpy: ``` libairspy-dev ```
-- HackRF: ``` libhackrf-dev ```
-- RTL-SDR: ``` librtlsdr-dev  ```
-- USRP: ``` libuhd-dev  ```
+| Distribution  | Install with |
+| ------------- | ------------- |
+|  Arch Linux  |  ``` yaourt -S urh ```  |
+|  Gentoo / Pentoo  | ``` emerge -av urh ``` |
+| Fedora 25+ | ``` dnf install urh ```  |
+| openSUSE  | ``` zypper install urh ```  |
+
+
+#### Generic way with pip
+If your distribution does not provide a package for URH you can install it using ```pip3 install urh```. Below you find more detailed instructions for Ubuntu/Debian.
+
+##### Ubuntu/Debian
+If you want to use native device backends, make sure you install the __-dev__ package for your desired SDRs, that is ``` libairspy-dev ```, ``` libhackrf-dev ```, ``` librtlsdr-dev  ```, ``` libuhd-dev  ```.
 
 If your device does not have a ``` -dev ``` package, e.g. LimeSDR, you need to manually create a symlink to the ``` .so ```, like this:
 ```bash
@@ -78,27 +75,7 @@ sudo apt-get update
 sudo apt-get install python3-numpy python3-psutil python3-zmq python3-pyqt5 g++ libpython3-dev python3-pip
 sudo pip3 install urh
 ```
-### Gentoo/Pentoo
-```bash
-emerge -av urh
-```
 
-### Fedora 25+
-```bash
-dnf install urh
-```
-
-### openSUSE
-If you use Tumbleweed (Rolling Release), you can install URH directly with
-```bash
-sudo zypper install urh
-```
-
-If you use Leap 42.2+ you need to add the ``` hardware:sdr ``` repo before:
-```bash
-sudo zypper addrepo -f https://download.opensuse.org/repositories/hardware:/sdr/openSUSE_Leap_42.3/hardware:sdr.repo
-sudo zypper install urh
-```
 
 ### Windows
 #### MSI Installer
@@ -112,9 +89,7 @@ If you run Python 3.4 on Windows you need to install  [Visual C++ Build Tools 20
 
 __It is recommended to use Python 3.5 or later on Windows, so no C++ compiler needs to be installed.__
 
-1. Install [Python 3 for Windows](https://www.python.org/downloads/windows/).
-  - Make sure you tick the _Add Python to PATH_ checkbox on first page in Python installer.
-  - Choose a __64 Bit__ Python version for native device support.
+1. Install [Python 3 for Windows](https://www.python.org/downloads/windows/). Choose a __64 Bit__ Python version for native device support.
 2. In a terminal, type: ``` pip install urh ```.
 3. Type ``` urh ``` in a terminal or search for ``` urh ``` in search bar to start the application.
 
@@ -126,20 +101,17 @@ corresponding native device support.
 3. In a terminal, type: ``` pip3 install urh ```.
 4. Type ``` urh ``` in a terminal to get it started.
 
-## Update your installation
-If you installed URH via pip you can keep it up to date with
-```bash
-pip3 install --upgrade urh
-```
-If this shouldn't work you can try:
-```bash
-python3 -m pip install --upgrade urh
-```
+### Update your installation
+#### Pip
+If you installed URH via pip you can keep it up to date with ``` pip3 install --upgrade urh ```, or, if this should not work ``` python3 -m pip install --upgrade urh ```.
 
-## Running from source
+#### MSI
+If you experience issues after updating URH using the ``` .msi ``` installer on Windows, please perform a __full uninstallation__. That is, uninstall URH via Windows and after that remove the installation folder (something like ``` C:\Program Files\Universal Radio Hacker ```). Now, install the new version using the recent ```.msi ```.
+
+### Running from source
 If you like to live on bleeding edge, you can run URH from source.
 
-### Without installation
+#### Without installation
 To execute the Universal Radio Hacker without installation, just run:
 ```bash
 git clone https://github.com/jopohl/urh/
@@ -149,7 +121,7 @@ cd urh/src/urh
 
 Note, before first usage the C++ extensions will be built.
 
-### Installing from source
+#### Installing from source
 To install from source you need to have ``` python-setuptools ``` installed. You can get it e.g. with ``` pip install setuptools ```. 
 Once the setuptools are installed use: 
 ```bash

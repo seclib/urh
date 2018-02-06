@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPlainTextEdit, QTableWidgetIt
 from urh import constants
 from urh.util.Logger import logger
 
-DEFAULT_PROGRAMS_WINDOWS = {}
+DEFAULT_PROGRAMS_WINDOWS = {".exe": None}
 
 def profile(func):
     def func_wrapper(*args):

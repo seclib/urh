@@ -1,3 +1,4 @@
+import numpy as np
 from climesdr cimport *
 from libc.stdlib cimport malloc, free
 # noinspection PyUnresolvedReferences
@@ -60,16 +61,6 @@ cpdef int close():
     :return:  0 on success, (-1) on failure
     """
     return LMS_Close(_c_device)
-
-cpdef int disconnect():
-    """
-    Disconnect device but keep configuration cache (device is not deallocated).
-    :return:  0 on success, (-1) on failure
-    """
-    return LMS_Disconnect(_c_device)
-
-cpdef bool is_open(int port):
-    return LMS_IsOpen(_c_device, port)
 
 cpdef int init():
     """
@@ -398,7 +389,7 @@ cpdef int recv_stream(connection, unsigned num_samples, unsigned timeout_ms):
     :param timeout_ms: how long to wait for data before timing out.
     :return: 
     """
-    cdef lms_stream_meta_t meta
+    cdef lms_stream_meta_t meta = lms_stream_meta_t(0, False, False)
     cdef float*buff = <float *> malloc(num_samples * 2 * sizeof(float))
 
     if not buff:
@@ -421,7 +412,9 @@ cpdef int send_stream(float[::1] samples, unsigned timeout_ms):
     :param timeout_ms: how long to wait for data before timing out
     :return: number of samples send on success, (-1) on failure
     """
-    cdef lms_stream_meta_t meta
+    cdef lms_stream_meta_t meta = lms_stream_meta_t(0, False, False)
+    if len(samples) == 1:
+        samples = np.zeros(1020, dtype=np.float32)
     cdef size_t sample_count = len(samples) // 2
 
     if len(samples) > 0:

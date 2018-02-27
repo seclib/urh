@@ -48,8 +48,7 @@ class TestProtocolSniffer(QtTestCase):
 
         packages = []
         for d in data:
-            modulator.modulate(list(map(int, d)), pause)
-            packages.append(modulator.modulated_samples)
+            packages.append(modulator.modulate(list(map(int, d)), pause))
 
         # verify modulation was correct
         pa = ProtocolAnalyzer(None)
@@ -68,7 +67,7 @@ class TestProtocolSniffer(QtTestCase):
         send_data = np.concatenate(packages)
         chunk_size = 128
         for i in range(0, len(send_data), chunk_size):
-            self.network_sdr_plugin_sender.send_raw_data(send_data[i:i+chunk_size], 1)
+            self.network_sdr_plugin_sender.send_raw_data(send_data[i:i + chunk_size], 1)
             QTest.qWait(10)
 
         # Send enough pauses to end sniffing
@@ -76,10 +75,8 @@ class TestProtocolSniffer(QtTestCase):
             self.network_sdr_plugin_sender.send_raw_data(np.zeros(bit_len, dtype=np.complex64), 1)
             QTest.qWait(10)
 
+        sniffer.stop()
         self.assertEqual(sniffer.plain_bits_str, data)
 
         # needed to prevent crash on windows
         QTest.qWait(10)
-
-
-

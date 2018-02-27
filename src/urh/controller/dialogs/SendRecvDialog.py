@@ -19,10 +19,13 @@ from urh.util.ProjectManager import ProjectManager
 class SendRecvDialog(QDialog):
     device_parameters_changed = pyqtSignal(dict)
 
-    def __init__(self, project_manager: ProjectManager, is_tx: bool, parent=None, testing_mode=False):
+    def __init__(self, project_manager: ProjectManager, is_tx: bool, continuous_send_mode=False, parent=None, testing_mode=False):
         super().__init__(parent)
         self.is_tx = is_tx
         self.update_interval = 25
+
+        # This flag is needed. Will cause memory leak otherwise.
+        self.setAttribute(Qt.WA_DeleteOnClose)
 
         self.setWindowFlags(Qt.Window)
         self.testing_mode = testing_mode
@@ -42,7 +45,8 @@ class SendRecvDialog(QDialog):
         self.start = 0
 
         self.device_settings_widget = DeviceSettingsWidget(project_manager, is_tx,
-                                                           backend_handler=self.backend_handler)
+                                                           backend_handler=self.backend_handler,
+                                                           continuous_send_mode=continuous_send_mode)
         self.ui.scrollAreaWidgetContents_2.layout().insertWidget(0, self.device_settings_widget)
 
         if testing_mode:

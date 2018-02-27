@@ -1,5 +1,6 @@
 import array
 import datetime
+import re
 import threading
 import time
 
@@ -15,12 +16,15 @@ from urh.signalprocessing.Modulator import Modulator
 from urh.signalprocessing.Participant import Participant
 from urh.signalprocessing.ProtocolSniffer import ProtocolSniffer
 from urh.simulator.SimulatorConfiguration import SimulatorConfiguration
+from urh.simulator.SimulatorCounterAction import SimulatorCounterAction
 from urh.simulator.SimulatorExpressionParser import SimulatorExpressionParser
 from urh.simulator.SimulatorGotoAction import SimulatorGotoAction
 from urh.simulator.SimulatorMessage import SimulatorMessage
 from urh.simulator.SimulatorProtocolLabel import SimulatorProtocolLabel
 from urh.simulator.SimulatorRule import SimulatorRule, SimulatorRuleCondition, ConditionType
-from urh.util import util
+from urh.simulator.SimulatorSleepAction import SimulatorSleepAction
+from urh.simulator.SimulatorTriggerCommandAction import SimulatorTriggerCommandAction
+from urh.util import util, HTMLFormatter
 from urh.util.Logger import logger
 from urh.util.ProjectManager import ProjectManager
 
@@ -29,17 +33,17 @@ class Simulator(QObject):
     simulation_started = pyqtSignal()
     simulation_stopped = pyqtSignal()
 
-    def __init__(self, protocol_manager: SimulatorConfiguration, modulators,
+    def __init__(self, simulator_config: SimulatorConfiguration, modulators,
                  expression_parser: SimulatorExpressionParser, project_manager: ProjectManager,
                  sniffer: ProtocolSniffer, sender: EndlessSender):
         super().__init__()
-        self.protocol_manager = protocol_manager
+        self.simulator_config = simulator_config
         self.project_manager = project_manager
         self.expression_parser = expression_parser
         self.modulators = modulators  # type: list[Modulator]
         self.backend_handler = BackendHandler()
 
-        self.transcript = []
+        self.transcript = []  # type: list[tuple[Participant, Participant, Message, int]]
 
         self.current_item = None
         self.last_sent_message = None
@@ -52,16 +56,25 @@ class Simulator(QObject):
         self.sender_ready = False
         self.fatal_device_error_occurred = False
 
-        self.measure_started = False
-        self.time = None
-
         self.verbose = True
 
         self.sniffer = sniffer
         self.sender = sender
 
+    def __initialize_counters(self):
+        for item in self.simulator_config.get_all_items():
+            if isinstance(item, SimulatorCounterAction):
+                item.reset_value()
+
+    def __add_newline_to_transcript(self):
+        if len(self.transcript) > 0 and self.transcript[-1] != ("", "", "", ""):
+            self.transcript.append(("", "", "", ""))
+
     def start(self):
         self.reset()
+
+        self.transcript.clear()
+        self.__initialize_counters()
 
         # start devices
         self.sniffer.rcv_device.fatal_error_occurred.connect(self.stop_on_error)
@@ -86,17 +99,17 @@ class Simulator(QObject):
     @pyqtSlot()
     def on_sniffer_ready(self):
         if not self.sniffer_ready:
-            self.log_message("Sniffer is ready to operate")
+            self.log_message("RX is ready to operate")
             self.sniffer_ready = True
 
     @pyqtSlot()
     def on_sender_ready(self):
         if not self.sender_ready:
-            self.log_message("Sender is ready to operate")
+            self.log_message("TX is ready to operate")
             self.sender_ready = True
 
     def stop(self, msg=""):
-        self.log_message("Stop simulation ..." + "{}".format(msg))
+        self.log_message("Stop simulation: " + "{}".format(msg))
         self.is_simulating = False
 
         if msg == "Finished":
@@ -110,8 +123,9 @@ class Simulator(QObject):
         self.simulation_stopped.emit()
 
     def restart(self):
+        self.__add_newline_to_transcript()
         self.reset()
-        self.log_message("Restart simulation ...")
+        self.log_message("<b>Restarting simulation</b>")
 
     def reset(self):
         self.sniffer_ready = False
@@ -119,9 +133,9 @@ class Simulator(QObject):
         self.fatal_device_error_occurred = False
         self.sniffer.clear()
 
-        self.current_item = self.protocol_manager.rootItem
+        self.current_item = self.simulator_config.rootItem
 
-        for msg in self.protocol_manager.get_all_messages():
+        for msg in self.simulator_config.get_all_messages():
             msg.send_recv_messages[:] = []
 
         self.last_sent_message = None
@@ -129,33 +143,17 @@ class Simulator(QObject):
         self.do_restart = False
         self.current_repeat = 0
         self.log_messages[:] = []
-        self.measure_started = False
-        self.transcript.clear()
 
     @property
     def devices(self):
         result = [self.sniffer.rcv_device, self.sender.device]
         return result
 
-    def device_messages(self):
-        result = ""
-
-        for device in self.devices:
-            new_messages = device.read_messages()
-            if new_messages:
-                result += new_messages
-
-            if result and not result.endswith("\n"):
-                result += "\n"
-
-        return result
+    def device_messages(self) -> list:
+        return [device.read_messages() for device in self.devices]
 
     def read_log_messages(self):
-        result = "\n".join(self.log_messages)
-
-        if result and not result.endswith("\n"):
-            result += "\n"
-
+        result = self.log_messages[:]
         self.log_messages.clear()
         return result
 
@@ -185,15 +183,29 @@ class Simulator(QObject):
         return self.current_repeat >= self.project_manager.simulator_num_repeat
 
     def __wait_for_devices(self):
-        for i in range(5):
+        for i in range(10):
             if self.sniffer_ready and self.sender_ready:
                 return True
             if self.fatal_device_error_occurred:
                 return False
-            self.log_message("Waiting for devices ...")
+            self.log_message("<i>Waiting for devices</i>")
             time.sleep(1)
 
         return True
+
+    def __fill_counter_values(self, command: str):
+        result = []
+        regex = "(item[0-9]+\.counter_value)"
+        for token in re.split(regex, command):
+            if re.match(regex, token) is not None:
+                try:
+                    result.append(str(self.simulator_config.item_dict[token].value))
+                except (KeyError, ValueError, AttributeError):
+                    logger.error("Could not get counter value for " + token)
+            else:
+                result.append(token)
+
+        return "".join(result)
 
     def simulate(self):
         self.simulation_started.emit()
@@ -204,20 +216,30 @@ class Simulator(QObject):
             self.stop("Devices not ready")
             return
 
-        self.log_message("Start simulation ...")
+        self.log_message("<b>Simulation is running</b>")
 
         while self.is_simulating and not self.simulation_is_finished():
-            if self.current_item is self.protocol_manager.rootItem:
-                self.transcript.clear()
+            if self.current_item is self.simulator_config.rootItem:
                 next_item = self.current_item.next()
+
             elif isinstance(self.current_item, SimulatorProtocolLabel):
                 next_item = self.current_item.next()
+
             elif isinstance(self.current_item, SimulatorMessage):
                 self.process_message()
                 next_item = self.current_item.next()
+
             elif isinstance(self.current_item, SimulatorGotoAction):
                 next_item = self.current_item.target
                 self.log_message("GOTO item " + next_item.index())
+
+            elif isinstance(self.current_item, SimulatorTriggerCommandAction):
+                next_item = self.current_item.next()
+                command = self.__fill_counter_values(self.current_item.command)
+                self.log_message("Calling {}".format(command))
+                result = util.run_command(command, param=None, detailed_output=True)
+                self.log_message(result)
+
             elif isinstance(self.current_item, SimulatorRule):
                 condition = self.current_item.get_first_applying_condition()
 
@@ -229,17 +251,29 @@ class Simulator(QObject):
                 else:
                     next_item = self.current_item.next_sibling()
 
-            elif (isinstance(self.current_item, SimulatorRuleCondition) and
-                  self.current_item.type != ConditionType.IF):
-                next_item = self.current_item.parent().next_sibling()
-            elif (isinstance(self.current_item, SimulatorRuleCondition) and
-                  self.current_item.type == ConditionType.IF):
-                next_item = self.current_item.parent()
+            elif isinstance(self.current_item, SimulatorRuleCondition):
+                if self.current_item.type == ConditionType.IF:
+                    next_item = self.current_item.parent()
+                else:
+                    next_item = self.current_item.parent().next_sibling()
+
+            elif isinstance(self.current_item, SimulatorSleepAction):
+                self.log_message(self.current_item.caption)
+                time.sleep(self.current_item.sleep_time)
+                next_item = self.current_item.next()
+
+            elif isinstance(self.current_item, SimulatorCounterAction):
+                self.current_item.progress_value()
+                self.log_message("Increase counter by {} to {}".format(self.current_item.step, self.current_item.value))
+                next_item = self.current_item.next()
+
             elif self.current_item is None:
                 self.current_repeat += 1
-                next_item = self.protocol_manager.rootItem
+                next_item = self.simulator_config.rootItem
+                self.__add_newline_to_transcript()
+
             else:
-                raise NotImplementedError("TODO")
+                raise ValueError("Unknown action {}".format(type(self.current_item)))
 
             self.current_item = next_item
 
@@ -269,7 +303,7 @@ class Simulator(QObject):
                     new_message.plain_bits[start:end] = checksum + array.array("B", [0] * (
                             (end - start) - len(checksum)))
 
-            self.transcript.append((msg.source, msg.destination, new_message))
+            self.transcript.append((msg.source, msg.destination, new_message, msg.index()))
             self.send_message(new_message, msg.repeat, sender, msg.modulator_index)
             self.log_message("Sending message " + msg.index())
             self.log_message_labels(new_message)
@@ -277,7 +311,7 @@ class Simulator(QObject):
             self.last_sent_message = msg
         else:
             # we have to receive a message
-            self.log_message("Waiting for message " + msg.index() + " ...")
+            self.log_message("<i>Waiting for message {}</i>".format(msg.index()))
             sniffer = self.sniffer
             retry = 0
 
@@ -303,13 +337,14 @@ class Simulator(QObject):
                 received_msg.decoder = new_message.decoder
                 received_msg.message_type = new_message.message_type
 
-                check_result, error_msg = self.check_message(received_msg, new_message, retry=retry)
+                check_result, error_msg = self.check_message(received_msg, new_message, retry=retry,
+                                                             msg_index=msg.index())
 
                 if check_result:
                     decoded_msg = Message(received_msg.decoded_bits, 0,
                                           received_msg.message_type, decoder=received_msg.decoder)
                     msg.send_recv_messages.append(decoded_msg)
-                    self.transcript.append((msg.source, msg.destination, decoded_msg))
+                    self.transcript.append((msg.source, msg.destination, decoded_msg, msg.index()))
                     self.log_message("Received message " + msg.index() + ": ")
                     self.log_message_labels(decoded_msg)
                     return
@@ -323,26 +358,19 @@ class Simulator(QObject):
                 self.stop()
 
     def log_message(self, message):
-        now = datetime.datetime.now()
-        timestamp = '{0:%b} {0.day} {0:%H}:{0:%M}:{0:%S}.{0:%f}'.format(now)
-        self.log_messages.append(timestamp + ": " + message)
-        logger.debug(timestamp + ": " + message)
+        timestamp = '{0:%b} {0.day} {0:%H}:{0:%M}:{0:%S}.{0:%f}'.format(datetime.datetime.now())
 
-    def check_message(self, received_msg, expected_msg, retry: int) -> (bool, str):
-        # do we have a crc label?
-        crc_label = next((lbl.label for lbl in received_msg.message_type if isinstance(lbl.label, ChecksumLabel)), None)
+        if isinstance(message, list) and len(message) > 0:
+            self.log_messages.append(timestamp + ": " + message[0])
+            self.log_messages.extend(message[1:])
+        else:
+            self.log_messages.append(timestamp + ": " + message)
 
-        if crc_label is not None:
-            checksum = crc_label.calculate_checksum_for_message(received_msg, use_decoded_bits=True)
-            start, end = received_msg.get_label_range(crc_label, 0, True)
-
-            if checksum != received_msg.decoded_bits[start:end]:
-                return False, "CRC mismatch"
+    def check_message(self, received_msg, expected_msg, retry: int, msg_index: int) -> (bool, str):
+        if len(received_msg.decoded_bits) == 0:
+            return False, "Failed to decode message {}".format(msg_index)
 
         for lbl in received_msg.message_type:
-            if isinstance(lbl.label, ChecksumLabel):
-                continue
-
             if lbl.value_type_index in [1, 3, 4]:
                 # get live, external program, random
                 continue
@@ -350,16 +378,23 @@ class Simulator(QObject):
             start_recv, end_recv = received_msg.get_label_range(lbl.label, 0, True)
             start_exp, end_exp = expected_msg.get_label_range(lbl.label, 0, False)
 
-            actual = received_msg.decoded_bits[start_recv:end_recv]
-            expected = expected_msg[start_exp:end_exp]
+            if isinstance(lbl.label, ChecksumLabel):
+                expected = lbl.label.calculate_checksum_for_message(received_msg, use_decoded_bits=True)
+                start, end = received_msg.get_label_range(lbl.label, 0, True)
+                actual = received_msg.decoded_bits[start:end]
+            else:
+                actual = received_msg.decoded_bits[start_recv:end_recv]
+                expected = expected_msg[start_exp:end_exp]
+
             if actual != expected:
-                error_msg = "\n  [Attempt {}/{}] Mismatch for label {}.\n" \
-                            "  Expected:\t{}\n  Got:\t{}".format(retry + 1,
-                                                                 self.project_manager.simulator_retries,
-                                                                 lbl.name,
-                                                                 "".join(map(str, expected)),
-                                                                 "".join(map(str, actual)))
-                return False, error_msg
+                log_msg = []
+                log_msg.append("Attempt for message {} [{}/{}]".format(msg_index, retry + 1,
+                                                                       self.project_manager.simulator_retries))
+                log_msg.append(HTMLFormatter.indent_string("Mismatch for label: <b>{}</b>".format(lbl.name)))
+                expected_str = util.convert_bits_to_string(expected, lbl.label.display_format_index)
+                got_str = util.convert_bits_to_string(actual, lbl.label.display_format_index)
+                log_msg.append(HTMLFormatter.align_expected_and_got_value(expected_str, got_str, align_depth=2))
+                return False, log_msg
 
         return True, ""
 
@@ -381,11 +416,11 @@ class Simulator(QObject):
             if data is None:
                 continue
 
-            logger.debug("\t" + lbl.name + ": " + data)
-            self.log_messages.append("\t" + lbl.name + ": " + data)
+            log_msg = lbl.name + ": " + HTMLFormatter.monospace(data)
+            self.log_messages.append(HTMLFormatter.indent_string(log_msg))
 
     def resend_last_message(self):
-        self.log_message("Resending last message ...")
+        self.log_message("Resending last message")
         lsm = self.last_sent_message
 
         if lsm is None:
@@ -396,28 +431,32 @@ class Simulator(QObject):
 
     def send_message(self, message, repeat, sender, modulator_index):
         modulator = self.modulators[modulator_index]
-        modulator.modulate(message.encoded_bits, pause=message.pause)
+        modulated = modulator.modulate(message.encoded_bits, pause=0)
 
         curr_repeat = 0
 
         while curr_repeat < repeat:
-            sender.push_data(modulator.modulated_samples)
+            sender.push_data(modulated)
             curr_repeat += 1
 
     def receive_message(self, sniffer):
-        if sniffer.messages:
+        if len(sniffer.messages) > 0:
             return sniffer.messages.pop(0)
 
         spy = QSignalSpy(sniffer.message_sniffed)
-        if spy.wait(self.project_manager.simulator_timeout * 1000):
-            return sniffer.messages.pop(0)
+        if spy.wait(self.project_manager.simulator_timeout_ms):
+            try:
+                return sniffer.messages.pop(0)
+            except IndexError:
+                self.log_message("Could not receive message")
+                return None
         else:
             self.log_message("Receive timeout")
             return None
 
     def get_transcript(self, participant: Participant):
         result = []
-        for source, destination, msg in self.transcript:
+        for source, destination, msg, _ in self.transcript:
             if participant == destination:
                 result.append("->" + msg.plain_bits_str)
             elif participant == source:
@@ -441,10 +480,11 @@ class Simulator(QObject):
                                                  else template_msg.destination)
                 direction = "->" if template_msg.source.simulate else "<-"
                 transcript += direction + new_message.plain_bits_str + "\n"
-                result = util.run_command(lbl.external_program, transcript, use_stdin=True)
+                cmd = self.__fill_counter_values(lbl.external_program)
+                result = util.run_command(cmd, transcript, use_stdin=True)
                 if len(result) != lbl.end - lbl.start:
                     log_msg = "Result value of external program {} ({}) does not match label length {}"
-                    logger.error(log_msg.format(result, len(result), lbl.end-lbl.start))
+                    logger.error(log_msg.format(result, len(result), lbl.end - lbl.start))
                     continue
 
                 try:

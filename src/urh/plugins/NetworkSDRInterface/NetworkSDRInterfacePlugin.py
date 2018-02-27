@@ -4,7 +4,7 @@ import threading
 import time
 
 import numpy as np
-from PyQt5.QtCore import pyqtSlot, QTimer, pyqtSignal
+from PyQt5.QtCore import pyqtSlot, pyqtSignal
 
 from urh.plugins.Plugin import SDRPlugin
 from urh.signalprocessing.Message import Message
@@ -140,7 +140,7 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
 
     @current_receive_index.setter
     def current_receive_index(self, value):
-        if hasattr(self.server, "current_receive_index"):
+        if hasattr(self, "server") and hasattr(self.server, "current_receive_index"):
             self.server.current_receive_index = value
         else:
             pass
@@ -178,6 +178,8 @@ class NetworkSDRInterfacePlugin(SDRPlugin):
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()
+
+        logger.debug("Started TCP server for receiving")
 
         self.receive_server_started.emit()
 

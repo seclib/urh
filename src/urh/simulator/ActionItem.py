@@ -1,10 +1,12 @@
-from PyQt5.QtWidgets import QGraphicsTextItem
 from PyQt5.QtCore import QRectF
+from PyQt5.QtWidgets import QGraphicsTextItem
 
-from urh.simulator.SimulatorGotoAction import SimulatorGotoAction
-from urh.simulator.SimulatorExternalProgramAction import SimulatorExternalProgramAction
 from urh.simulator.GraphicsItem import GraphicsItem
+from urh.simulator.SimulatorCounterAction import SimulatorCounterAction
+from urh.simulator.SimulatorGotoAction import SimulatorGotoAction
 from urh.simulator.SimulatorItem import SimulatorItem
+from urh.simulator.SimulatorSleepAction import SimulatorSleepAction
+from urh.simulator.SimulatorTriggerCommandAction import SimulatorTriggerCommandAction
 
 
 class ActionItem(GraphicsItem):
@@ -43,13 +45,28 @@ class GotoActionItem(ActionItem):
         super().__init__(model_item=model_item, parent=parent)
 
     def refresh(self):
-        text = "GOTO: "
+        text = "[Goto: "
         text += "..." if self.model_item.goto_target is None else self.model_item.goto_target
+        text += "]"
         self.text.setPlainText(text)
 
 
-class ProgramActionItem(ActionItem):
-    def __init__(self, model_item: SimulatorItem, parent=None):
-        assert isinstance(model_item, SimulatorExternalProgramAction)
+class TriggerCommandActionItem(ActionItem):
+    def __init__(self, model_item: SimulatorTriggerCommandAction, parent=None):
         super().__init__(model_item=model_item, parent=parent)
-        self.text.setPlainText("External program")
+        self.text.setPlainText("[Trigger command]")
+
+
+class SleepActionItem(ActionItem):
+    def __init__(self, model_item: SimulatorSleepAction, parent=None):
+        super().__init__(model_item=model_item, parent=parent)
+        self.text.setPlainText("[" + model_item.caption + "]")
+
+    def refresh(self):
+        self.text.setPlainText("[" + self.model_item.caption + "]")
+
+
+class CounterActionItem(ActionItem):
+    def __init__(self, model_item: SimulatorCounterAction, parent=None):
+        super().__init__(model_item=model_item, parent=parent)
+        self.text.setPlainText("[Counter]")

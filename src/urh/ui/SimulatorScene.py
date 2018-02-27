@@ -6,17 +6,20 @@ from PyQt5.QtWidgets import QGraphicsScene, QGraphicsSceneDragDropEvent, QAbstra
 from urh.signalprocessing.Message import Message
 from urh.signalprocessing.MessageType import MessageType
 from urh.signalprocessing.Participant import Participant
-from urh.simulator.ActionItem import ActionItem, GotoActionItem, ProgramActionItem
+from urh.simulator.ActionItem import ActionItem, GotoActionItem, TriggerCommandActionItem, SleepActionItem, \
+    CounterActionItem
 from urh.simulator.GraphicsItem import GraphicsItem
 from urh.simulator.LabelItem import LabelItem
 from urh.simulator.MessageItem import MessageItem
 from urh.simulator.ParticipantItem import ParticipantItem
 from urh.simulator.RuleItem import RuleItem, RuleConditionItem
 from urh.simulator.SimulatorConfiguration import SimulatorConfiguration
+from urh.simulator.SimulatorCounterAction import SimulatorCounterAction
 from urh.simulator.SimulatorGotoAction import SimulatorGotoAction
 from urh.simulator.SimulatorItem import SimulatorItem
 from urh.simulator.SimulatorMessage import SimulatorMessage
-from urh.simulator.SimulatorExternalProgramAction import SimulatorExternalProgramAction
+from urh.simulator.SimulatorSleepAction import SimulatorSleepAction
+from urh.simulator.SimulatorTriggerCommandAction import SimulatorTriggerCommandAction
 from urh.simulator.SimulatorProtocolLabel import SimulatorProtocolLabel
 from urh.simulator.SimulatorRule import SimulatorRule, SimulatorRuleCondition, ConditionType
 
@@ -26,7 +29,9 @@ class SimulatorScene(QGraphicsScene):
         SimulatorRule: RuleItem,
         SimulatorRuleCondition: RuleConditionItem,
         SimulatorGotoAction: GotoActionItem,
-        SimulatorExternalProgramAction: ProgramActionItem,
+        SimulatorTriggerCommandAction: TriggerCommandActionItem,
+        SimulatorCounterAction: CounterActionItem,
+        SimulatorSleepAction: SleepActionItem,
         SimulatorMessage: MessageItem,
         SimulatorProtocolLabel: LabelItem
     }
@@ -246,7 +251,7 @@ class SimulatorScene(QGraphicsScene):
             if key not in sim_items:
                 del self.items_dict[key]
 
-    def get_all_messages(self):
+    def get_all_message_items(self):
         """
 
         :rtype: list[MessageItem]
@@ -254,10 +259,14 @@ class SimulatorScene(QGraphicsScene):
         return [item for item in self.items() if isinstance(item, MessageItem)]
 
     def get_selected_messages(self):
-        return [item for item in self.selectedItems() if isinstance(item, MessageItem)]
+        """
+
+        :rtype: list[SimulatorMessage]
+        """
+        return [item.model_item for item in self.selectedItems() if isinstance(item, MessageItem)]
 
     def select_messages_with_participant(self, participant: ParticipantItem, from_part=True):
-        messages = self.get_all_messages()
+        messages = self.get_all_message_items()
         self.clearSelection()
 
         for msg in messages:
@@ -266,7 +275,7 @@ class SimulatorScene(QGraphicsScene):
                 msg.select_all()
 
     def arrange_participants(self):
-        messages = self.get_all_messages()
+        messages = self.get_all_message_items()
 
         for participant in self.participant_items:
             if any(msg.source == participant or msg.destination == participant for msg in messages):
@@ -416,11 +425,23 @@ class SimulatorScene(QGraphicsScene):
         self.simulator_config.add_items([goto_action], pos, parent)
         return goto_action
 
-    def add_program_action(self, ref_item, position):
-        program_action = SimulatorExternalProgramAction()
+    def add_sleep_action(self, ref_item, position):
+        sleep_action = SimulatorSleepAction()
         pos, parent = self.insert_at(ref_item, position, False)
-        self.simulator_config.add_items([program_action], pos, parent)
-        return program_action
+        self.simulator_config.add_items([sleep_action], pos, parent)
+        return sleep_action
+
+    def add_counter_action(self, ref_item, position):
+        counter_action = SimulatorCounterAction()
+        pos, parent = self.insert_at(ref_item, position, False)
+        self.simulator_config.add_items([counter_action], pos, parent)
+        return counter_action
+
+    def add_trigger_command_action(self, ref_item, position):
+        command_action = SimulatorTriggerCommandAction()
+        pos, parent = self.insert_at(ref_item, position, False)
+        self.simulator_config.add_items([command_action], pos, parent)
+        return command_action
 
     def add_message(self, plain_bits, pause, message_type, ref_item, position, decoder=None, source=None,
                     destination=None):

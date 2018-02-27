@@ -1,6 +1,7 @@
+import os
 import socket
+import tempfile
 import time
-import copy
 from multiprocessing import Process, Value
 
 import numpy as np
@@ -21,11 +22,12 @@ from urh.signalprocessing.Participant import Participant
 from urh.signalprocessing.ProtocolAnalyzer import ProtocolAnalyzer
 from urh.signalprocessing.ProtocolSniffer import ProtocolSniffer
 from urh.signalprocessing.Signal import Signal
+from urh.simulator.ActionItem import TriggerCommandActionItem, SleepActionItem, CounterActionItem
+from urh.simulator.Simulator import Simulator
 from urh.simulator.SimulatorMessage import SimulatorMessage
 from urh.simulator.SimulatorProtocolLabel import SimulatorProtocolLabel
 from urh.util.Logger import logger
 from urh.util.SettingsProxy import SettingsProxy
-from urh.simulator.Simulator import Simulator
 
 
 def receive(port, current_index, target_index, elapsed):
@@ -80,7 +82,6 @@ class TestSimulator(QtTestCase):
 
         self.network_sdr_plugin_sender = NetworkSDRInterfacePlugin(raw_mode=True)
 
-
         part_a = Participant("Device A", shortname="A", color_index=0)
         part_b = Participant("Device B", shortname="B", color_index=1)
         part_b.simulate = True
@@ -96,13 +97,14 @@ class TestSimulator(QtTestCase):
         simulator = Simulator(self.stc.simulator_config, self.gtc.modulators, self.stc.sim_expression_parser,
                               self.form.project_manager, sniffer=sniffer, sender=sender)
 
+        pause = 100000
         msg_a = SimulatorMessage(part_b,
                                  [1, 0] * 16 + [1, 1, 0, 0] * 8 + [0, 0, 1, 1] * 8 + [1, 0, 1, 1, 1, 0, 0, 1, 1, 1] * 4,
-                                 pause=100000, message_type=MessageType("empty_message_type"), source=part_a)
+                                 pause=pause, message_type=MessageType("empty_message_type"), source=part_a)
 
         msg_b = SimulatorMessage(part_a,
                                  [1, 0] * 16 + [1, 1, 0, 0] * 8 + [1, 1, 0, 0] * 8 + [1, 0, 1, 1, 1, 0, 0, 1, 1, 1] * 4,
-                                 pause=100000, message_type=MessageType("empty_message_type"), source=part_b)
+                                 pause=pause, message_type=MessageType("empty_message_type"), source=part_b)
 
         self.stc.simulator_config.add_items([msg_a, msg_b], 0, None)
         self.stc.simulator_config.update_active_participants()
@@ -120,13 +122,13 @@ class TestSimulator(QtTestCase):
 
         current_index = Value("L")
         elapsed = Value("f")
-        target_num_samples = 113600
+        target_num_samples = 113600 - pause
         receive_process = Process(target=receive, args=(port, current_index, target_num_samples, elapsed))
         receive_process.daemon = True
         receive_process.start()
 
         # Ensure receiver is running
-        time.sleep(1)
+        time.sleep(2)
 
         # spy = QSignalSpy(self.network_sdr_plugin_receiver.rcv_index_changed)
         simulator.start()
@@ -134,10 +136,10 @@ class TestSimulator(QtTestCase):
         modulator = Modulator("test_modulator")
         modulator.samples_per_bit = 100
         modulator.carrier_freq_hz = 55e3
-        modulator.modulate(msg_a.encoded_bits)
+
         # yappi.start()
 
-        self.network_sdr_plugin_sender.send_raw_data(modulator.modulated_samples, 1)
+        self.network_sdr_plugin_sender.send_raw_data(modulator.modulate(msg_a.encoded_bits), 1)
         QTest.qWait(10)
         # send some zeros to simulate the end of a message
         self.network_sdr_plugin_sender.send_raw_data(np.zeros(100000, dtype=np.complex64), 1)
@@ -161,7 +163,7 @@ class TestSimulator(QtTestCase):
         """
         profile = self.get_path_for_filename("testprofile.sim.xml")
         self.form.add_files([profile])
-        self.assertEqual(len(self.form.simulator_tab_controller.simulator_scene.get_all_messages()), 6)
+        self.assertEqual(len(self.form.simulator_tab_controller.simulator_scene.get_all_message_items()), 6)
 
         port = self.get_free_port()
         self.alice = NetworkSDRInterfacePlugin(raw_mode=True)
@@ -190,7 +192,7 @@ class TestSimulator(QtTestCase):
         conn, addr = s.accept()
 
         msg = next(msg for msg in dialog.simulator_config.get_all_messages() if msg.source.name == "Alice")
-        checksum_label = next(lbl for lbl in msg.message_type if lbl.is_checksum_label).label # type: ChecksumLabel
+        checksum_label = next(lbl for lbl in msg.message_type if lbl.is_checksum_label).label  # type: ChecksumLabel
 
         modulator = dialog.project_manager.modulators[0]  # type: Modulator
         preamble_str = "10101010"
@@ -202,52 +204,52 @@ class TestSimulator(QtTestCase):
 
         seq_num = int("".join(map(str, seq)), 2)
 
-        checksum = list(checksum_label.calculate_checksum(seq+data))
+        checksum = list(checksum_label.calculate_checksum(seq + data))
 
         msg1 = preamble + sync + seq + data + checksum
-        modulator.modulate(msg1)
-        self.alice.send_raw_data(modulator.modulated_samples, 1)
+
+        self.alice.send_raw_data(modulator.modulate(msg1), 1)
         QTest.qWait(100)
         self.alice.send_raw_data(np.zeros(100000, dtype=np.complex64), 1)
         QTest.qWait(100)
 
-        bits = self.__demodulate(conn.recv(65536))
+        bits = self.__demodulate(conn)
         self.assertEqual(len(bits), 1)
         bits = bits[0]
-        self.assertTrue(bits.startswith(preamble_str+sync_str))
-        bits = bits.replace(preamble_str+sync_str, "")
+        self.assertTrue(bits.startswith(preamble_str + sync_str))
+        bits = bits.replace(preamble_str + sync_str, "")
         self.assertEqual(int(bits, 2), seq_num + 1)
 
-        seq = list(map(int, "{0:08b}".format(seq_num+2)))
+        seq = list(map(int, "{0:08b}".format(seq_num + 2)))
         checksum = list(checksum_label.calculate_checksum(seq + data))
         msg2 = preamble + sync + seq + data + checksum
-        modulator.modulate(msg2)
-        self.alice.send_raw_data(modulator.modulated_samples, 1)
+
+        self.alice.send_raw_data(modulator.modulate(msg2), 1)
         QTest.qWait(100)
         self.alice.send_raw_data(np.zeros(100000, dtype=np.complex64), 1)
         QTest.qWait(100)
 
-        bits = self.__demodulate(conn.recv(65536))
+        bits = self.__demodulate(conn)
         self.assertEqual(len(bits), 1)
         bits = bits[0]
-        self.assertTrue(bits.startswith(preamble_str+sync_str))
-        bits = bits.replace(preamble_str+sync_str, "")
+        self.assertTrue(bits.startswith(preamble_str + sync_str))
+        bits = bits.replace(preamble_str + sync_str, "")
         self.assertEqual(int(bits, 2), seq_num + 3)
 
-        seq = list(map(int, "{0:08b}".format(seq_num+4)))
+        seq = list(map(int, "{0:08b}".format(seq_num + 4)))
         checksum = list(checksum_label.calculate_checksum(seq + data))
         msg3 = preamble + sync + seq + data + checksum
-        modulator.modulate(msg3)
-        self.alice.send_raw_data(modulator.modulated_samples, 1)
+
+        self.alice.send_raw_data(modulator.modulate(msg3), 1)
         QTest.qWait(100)
         self.alice.send_raw_data(np.zeros(100000, dtype=np.complex64), 1)
         QTest.qWait(100)
 
-        bits = self.__demodulate(conn.recv(65536))
+        bits = self.__demodulate(conn)
         self.assertEqual(len(bits), 1)
         bits = bits[0]
-        self.assertTrue(bits.startswith(preamble_str+sync_str))
-        bits = bits.replace(preamble_str+sync_str, "")
+        self.assertTrue(bits.startswith(preamble_str + sync_str))
+        bits = bits.replace(preamble_str + sync_str, "")
         self.assertEqual(int(bits, 2), seq_num + 5)
 
         QTest.qWait(100)
@@ -262,6 +264,13 @@ class TestSimulator(QtTestCase):
         stc = self.form.simulator_tab_controller
         stc.ui.btnAddParticipant.click()
         stc.ui.btnAddParticipant.click()
+
+        stc.simulator_scene.add_counter_action(None, 0)
+        action = next(item for item in stc.simulator_scene.items() if isinstance(item, CounterActionItem))
+        action.model_item.start = 3
+        action.model_item.step = 2
+        counter_item_str = "item" + str(action.model_item.index()) + ".counter_value"
+
         stc.ui.gvSimulator.add_empty_message(42)
         stc.ui.gvSimulator.add_empty_message(42)
 
@@ -275,13 +284,29 @@ class TestSimulator(QtTestCase):
         messages[0].destination.simulate = True
         messages[1].source = stc.project_manager.participants[1]
         messages[1].destination = stc.project_manager.participants[0]
+
+        stc.simulator_scene.add_trigger_command_action(None, 200)
+        stc.simulator_scene.add_sleep_action(None, 200)
+
         lbl1 = messages[0].message_type[0]  # type: SimulatorProtocolLabel
         lbl2 = messages[1].message_type[0]  # type: SimulatorProtocolLabel
 
         lbl1.value_type_index = 3
-        lbl1.external_program = get_path_for_data_file("external_program_simulator.py")
+        lbl1.external_program = get_path_for_data_file("external_program_simulator.py") + " " + counter_item_str
         lbl2.value_type_index = 3
-        lbl2.external_program = get_path_for_data_file("external_program_simulator.py")
+        lbl2.external_program = get_path_for_data_file("external_program_simulator.py") + " " + counter_item_str
+
+        action = next(item for item in stc.simulator_scene.items() if isinstance(item, SleepActionItem))
+        action.model_item.sleep_time = 0.001
+        stc.simulator_scene.clearSelection()
+        action = next(item for item in stc.simulator_scene.items() if isinstance(item, TriggerCommandActionItem))
+        action.setSelected(True)
+        self.assertEqual(stc.ui.detail_view_widget.currentIndex(), 4)
+        fname = tempfile.mktemp()
+        self.assertFalse(os.path.isfile(fname))
+        external_command = "cmd.exe /C copy NUL {}".format(fname) if os.name == "nt" else "touch {}".format(fname)
+        stc.ui.lineEditTriggerCommand.setText(external_command)
+        self.assertEqual(action.model_item.command, external_command)
 
         port = self.get_free_port()
         self.alice = NetworkSDRInterfacePlugin(raw_mode=True)
@@ -310,13 +335,13 @@ class TestSimulator(QtTestCase):
         conn, addr = s.accept()
 
         modulator = dialog.project_manager.modulators[0]  # type: Modulator
-        modulator.modulate("0" * 42)
-        self.alice.send_raw_data(modulator.modulated_samples, 1)
+
+        self.alice.send_raw_data(modulator.modulate("10" * 42), 1)
         QTest.qWait(100)
         self.alice.send_raw_data(np.zeros(100000, dtype=np.complex64), 1)
-        QTest.qWait(300)
+        QTest.qWait(500)
 
-        bits = self.__demodulate(conn.recv(65536))
+        bits = self.__demodulate(conn)
         self.assertEqual(bits[0], "101010101")
         self.assertTrue(simulator.simulation_is_finished())
 
@@ -325,7 +350,13 @@ class TestSimulator(QtTestCase):
 
         QTest.qWait(100)
 
-    def __demodulate(self, data):
+        self.assertTrue(os.path.isfile(fname))
+
+    def __demodulate(self, connection):
+        data = connection.recv(65536)
+        while len(data) % 8 != 0:
+            data += connection.recv(65536)
+
         arr = np.array(np.frombuffer(data, dtype=np.complex64))
         signal = Signal("", "")
         signal._fulldata = arr

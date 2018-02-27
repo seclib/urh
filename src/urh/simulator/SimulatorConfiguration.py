@@ -4,9 +4,11 @@ from collections import OrderedDict
 from urh.signalprocessing.Encoding import Encoding
 from urh.signalprocessing.Modulator import Modulator
 from urh.signalprocessing.Participant import Participant
+from urh.simulator.SimulatorCounterAction import SimulatorCounterAction
 from urh.simulator.SimulatorGotoAction import SimulatorGotoAction
 from urh.simulator.SimulatorItem import SimulatorItem
-from urh.simulator.SimulatorExternalProgramAction import SimulatorExternalProgramAction
+from urh.simulator.SimulatorSleepAction import SimulatorSleepAction
+from urh.simulator.SimulatorTriggerCommandAction import SimulatorTriggerCommandAction
 from urh.simulator.SimulatorRule import SimulatorRuleCondition, ConditionType, SimulatorRule
 from urh.simulator.SimulatorMessage import SimulatorMessage
 from urh.signalprocessing.FieldType import FieldType
@@ -66,7 +68,10 @@ class SimulatorConfiguration(QObject):
 
             name = "item" + index.replace(".", "_") + suffix
 
-            self.item_dict[name] = item
+            if isinstance(item, SimulatorCounterAction):
+                self.item_dict[name+".counter_value"] = item
+            else:
+                self.item_dict[name] = item
 
         self.item_dict_updated.emit()
 
@@ -220,7 +225,9 @@ class SimulatorConfiguration(QObject):
 
         participants_tag = xml_tag.find("participants")
         if participants_tag:
-            self.project_manager.participants[:] = Participant.read_participants_from_xml_tag(participants_tag)
+            for participant in Participant.read_participants_from_xml_tag(participants_tag):
+                if participant not in self.project_manager.participants:
+                    self.project_manager.participants.append(participant)
             self.participants_changed.emit()
 
         decodings_tag = xml_tag.find("decodings")
@@ -246,8 +253,12 @@ class SimulatorConfiguration(QObject):
                                                  message_types)
         elif xml_tag.tag == "simulator_label":
             item = SimulatorProtocolLabel.from_xml(xml_tag, self.project_manager.field_types_by_caption)
-        elif xml_tag.tag == "simulator_program_action":
-            item = SimulatorExternalProgramAction.from_xml(xml_tag)
+        elif xml_tag.tag == "simulator_trigger_command_action":
+            item = SimulatorTriggerCommandAction.from_xml(xml_tag)
+        elif xml_tag.tag == "simulator_sleep_action":
+            item = SimulatorSleepAction.from_xml(xml_tag)
+        elif xml_tag.tag == "simulator_counter_action":
+            item = SimulatorCounterAction.from_xml(xml_tag)
         elif xml_tag.tag == "simulator_rule":
             item = SimulatorRule.from_xml(xml_tag)
         elif xml_tag.tag == "simulator_rule_condition":
@@ -285,11 +296,8 @@ class SimulatorConfiguration(QObject):
     def __save_item_to_xml(self, tag: ET.Element, item):
         if isinstance(item, SimulatorMessage):
             child_tag = item.to_xml(decoders=self.project_manager.decodings, include_message_type=True, write_bits=True)
-        elif any(isinstance(item, c) for c in (SimulatorProtocolLabel, SimulatorExternalProgramAction, SimulatorGotoAction,
-                                               SimulatorRule, SimulatorRuleCondition)):
-            child_tag = item.to_xml()
         else:
-            raise ValueError("Unknown simulator item type {}".format(type(item)))
+            child_tag = item.to_xml()
 
         tag.append(child_tag)
 

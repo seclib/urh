@@ -17,8 +17,8 @@ from urh.util.SettingsProxy import SettingsProxy
 class Device(QObject):
     JOIN_TIMEOUT = 1.0
 
-    SEND_BUFFER_SIZE = 0
-    CONTINUOUS_SEND_BUFFER_SIZE = 0
+    SYNC_TX_CHUNK_SIZE = 0
+    CONTINUOUS_TX_CHUNK_SIZE = 0
 
     class Command(Enum):
         STOP = 0
@@ -130,7 +130,7 @@ class Device(QObject):
         try:
             cls.adapt_num_read_samples_to_sample_rate(dev_parameters[cls.Command.SET_SAMPLE_RATE.name])
         except NotImplementedError:
-            # Many SDRs like HackRF or AirSpy do not need to calculate READ_SAMPLES
+            # Many SDRs like HackRF or AirSpy do not need to calculate SYNC_RX_CHUNK_SIZE
             # as default values are either fine or given by the hardware
             pass
 
@@ -148,7 +148,7 @@ class Device(QObject):
 
         while not exit_requested:
             if cls.ASYNCHRONOUS:
-                time.sleep(0.5)
+                time.sleep(0.25)
             else:
                 cls.receive_sync(data_connection)
             while ctrl_connection.poll():
@@ -177,7 +177,7 @@ class Device(QObject):
             return False
 
         exit_requested = False
-        buffer_size = cls.CONTINUOUS_SEND_BUFFER_SIZE if send_config.continuous else cls.SEND_BUFFER_SIZE
+        buffer_size = cls.CONTINUOUS_TX_CHUNK_SIZE if send_config.continuous else cls.SYNC_TX_CHUNK_SIZE
         if not cls.ASYNCHRONOUS and buffer_size == 0:
             logger.warning("Send buffer size is zero!")
 
@@ -194,6 +194,11 @@ class Device(QObject):
                 if result == cls.Command.STOP.name:
                     exit_requested = True
                     break
+
+        if not cls.ASYNCHRONOUS:
+            # Some Sync send calls (e.g. USRP) are not blocking, so we wait a bit here to ensure
+            # that the send buffer on the SDR is cleared
+            time.sleep(0.75)
 
         if exit_requested:
             logger.debug("{}: exit requested. Stopping sending".format(cls.__class__.__name__))

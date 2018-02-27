@@ -29,7 +29,7 @@ from urh.signalprocessing.Message import Message
 from urh.signalprocessing.ProtocolAnalyzer import ProtocolAnalyzer
 from urh.signalprocessing.Signal import Signal
 from urh.ui.ui_main import Ui_MainWindow
-from urh.util import FileOperator
+from urh.util import FileOperator, util
 from urh.util.Errors import Errors
 from urh.util.Logger import logger
 from urh.util.ProjectManager import ProjectManager
@@ -185,6 +185,8 @@ class MainController(QMainWindow):
         self.signal_tab_controller.files_dropped.connect(self.on_files_dropped)
         self.signal_tab_controller.frame_was_dropped.connect(self.set_frame_numbers)
 
+        self.simulator_tab_controller.open_in_analysis_requested.connect(self.on_simulator_open_in_analysis_requested)
+
         self.compare_frame_controller.show_interpretation_clicked.connect(
             self.show_protocol_selection_in_interpretation)
         self.compare_frame_controller.files_dropped.connect(self.on_files_dropped)
@@ -225,11 +227,36 @@ class MainController(QMainWindow):
             self.recentFileActionList.append(recent_file_action)
             self.ui.menuFile.addAction(self.recentFileActionList[i])
 
+    @staticmethod
+    def get_protocol_from_string(message_strings: list):
+        protocol = ProtocolAnalyzer(None)
+        is_hex = False
+        for line in filter(None, map(str.strip, message_strings)):
+            # support transcript files e.g 1 (A->B): 10101111
+            index = line.rfind(" ")
+            try:
+                protocol.messages.append(Message.from_plain_bits_str(line[index + 1:]))
+            except ValueError:
+                is_hex = True
+                break
+
+        if is_hex:
+            protocol.messages.clear()
+            lookup = {"{0:0x}".format(i): "{0:04b}".format(i) for i in range(16)}
+            for line in filter(None, map(str.strip, message_strings)):
+                # support transcript files e.g 1 (A->B): 10101111
+                index = line.rfind(" ")
+                bit_str = [lookup[line[i].lower()] for i in range(index+1, len(line))]
+                protocol.messages.append(Message.from_plain_bits_str("".join(bit_str)))
+
+        return protocol
+
     def add_plain_bits_from_txt(self, filename: str):
-        protocol = ProtocolAnalyzer(None, filename=filename)
         with open(filename) as f:
-            for line in f:
-                protocol.messages.append(Message.from_plain_bits_str(line.strip()))
+            protocol = self.get_protocol_from_string(f.readlines())
+
+        protocol.filename = filename
+        protocol.name = util.get_name_from_filename(filename)
 
         self.compare_frame_controller.add_protocol(protocol)
         self.compare_frame_controller.refresh()
@@ -388,6 +415,8 @@ class MainController(QMainWindow):
 
             if self.project_manager.project_file is None:
                 self.adjust_for_current_file(filename)
+
+            self.refresh_main_menu()
 
     def set_frame_numbers(self):
         self.signal_tab_controller.set_frame_numbers()
@@ -548,33 +577,36 @@ class MainController(QMainWindow):
 
     @pyqtSlot(int, int, int, int)
     def show_protocol_selection_in_interpretation(self, start_message, start, end_message, end):
-        cfc = self.compare_frame_controller
-        msg_total = 0
-        last_sig_frame = None
-        for protocol in cfc.protocol_list:
-            if not protocol.show:
-                continue
-            n = protocol.num_messages
-            view_type = cfc.ui.cbProtoView.currentIndex()
-            messages = [i - msg_total for i in range(msg_total, msg_total + n) if start_message <= i <= end_message]
-            if len(messages) > 0:
-                try:
-                    signal_frame = next((sf for sf, pf in self.signal_protocol_dict.items() if pf == protocol))
-                except StopIteration:
-                    QMessageBox.critical(self, self.tr("Error"),
-                                         self.tr("Could not find corresponding signal frame."))
-                    return
-                signal_frame.set_roi_from_protocol_analysis(min(messages), start, max(messages), end + 1, view_type)
-                last_sig_frame = signal_frame
-            msg_total += n
-        focus_frame = last_sig_frame
-        if last_sig_frame is not None:
-            self.signal_tab_controller.ui.scrollArea.ensureWidgetVisible(last_sig_frame, 0, 0)
+        try:
+            cfc = self.compare_frame_controller
+            msg_total = 0
+            last_sig_frame = None
+            for protocol in cfc.protocol_list:
+                if not protocol.show:
+                    continue
+                n = protocol.num_messages
+                view_type = cfc.ui.cbProtoView.currentIndex()
+                messages = [i - msg_total for i in range(msg_total, msg_total + n) if start_message <= i <= end_message]
+                if len(messages) > 0:
+                    try:
+                        signal_frame = next((sf for sf, pf in self.signal_protocol_dict.items() if pf == protocol))
+                    except StopIteration:
+                        QMessageBox.critical(self, self.tr("Error"),
+                                             self.tr("Could not find corresponding signal frame."))
+                        return
+                    signal_frame.set_roi_from_protocol_analysis(min(messages), start, max(messages), end + 1, view_type)
+                    last_sig_frame = signal_frame
+                msg_total += n
+            focus_frame = last_sig_frame
+            if last_sig_frame is not None:
+                self.signal_tab_controller.ui.scrollArea.ensureWidgetVisible(last_sig_frame, 0, 0)
 
-        QApplication.instance().processEvents()
-        self.ui.tabWidget.setCurrentIndex(0)
-        if focus_frame is not None:
-            focus_frame.ui.txtEdProto.setFocus()
+            QApplication.instance().processEvents()
+            self.ui.tabWidget.setCurrentIndex(0)
+            if focus_frame is not None:
+                focus_frame.ui.txtEdProto.setFocus()
+        except Exception as e:
+            logger.exception(e)
 
     @pyqtSlot(str)
     def on_file_tree_filter_text_changed(self, text: str):
@@ -870,3 +902,12 @@ class MainController(QMainWindow):
         if dialog.exec_():
             for filename in dialog.selectedFiles():
                 self.add_protocol_file(filename)
+
+    @pyqtSlot(str)
+    def on_simulator_open_in_analysis_requested(self, text: str):
+        protocol = self.get_protocol_from_string(text.split("\n"))
+        protocol.name = "Transcript"
+
+        self.ui.tabWidget.setCurrentIndex(1)
+        self.compare_frame_controller.add_protocol(protocol)
+        self.compare_frame_controller.refresh()

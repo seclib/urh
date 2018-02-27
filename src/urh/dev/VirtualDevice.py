@@ -438,6 +438,19 @@ class VirtualDevice(QObject):
             raise ValueError("Unsupported Backend")
 
     @property
+    def resume_on_full_receive_buffer(self) -> bool:
+        return self.__dev.resume_on_full_receive_buffer
+
+    @resume_on_full_receive_buffer.setter
+    def resume_on_full_receive_buffer(self, value: bool):
+        if value != self.__dev.resume_on_full_receive_buffer:
+            self.__dev.resume_on_full_receive_buffer = value
+            if self.backend == Backends.native:
+                self.__dev.receive_buffer = None
+            elif self.backend == Backends.grc:
+                self.__dev.data = None
+
+    @property
     def num_sending_repeats(self):
         if self.mode == Mode.send:
             if self.backend == Backends.grc:
@@ -626,6 +639,8 @@ class VirtualDevice(QObject):
             return errors
         elif self.backend == Backends.native:
             messages = "\n".join(self.__dev.device_messages)
+            self.__dev.device_messages.clear()
+
             if messages and not messages.endswith("\n"):
                 messages += "\n"
 
@@ -633,8 +648,6 @@ class VirtualDevice(QObject):
                 self.ready_for_action.emit()
             elif "failed to start" in messages:
                 self.fatal_error_occurred.emit(messages[messages.index("failed to start"):])
-
-            self.__dev.device_messages.clear()
 
             return messages
         elif self.backend == Backends.network:

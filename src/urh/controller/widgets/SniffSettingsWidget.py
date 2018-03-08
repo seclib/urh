@@ -1,4 +1,5 @@
 import os
+
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QCompleter, QDirModel
 
@@ -6,7 +7,6 @@ from urh import constants
 from urh.dev.BackendHandler import BackendHandler
 from urh.signalprocessing.ProtocolSniffer import ProtocolSniffer
 from urh.ui.ui_send_recv_sniff_settings import Ui_SniffSettings
-from urh.util.Errors import Errors
 from urh.util.ProjectManager import ProjectManager
 
 
@@ -70,7 +70,7 @@ class SniffSettingsWidget(QWidget):
                 elif hasattr(widget, "setCurrentIndex"):
                     widget.setCurrentIndex(value)
 
-        set_val(self.ui.spinbox_sniff_BitLen, "bit_len",  signal.bit_len if signal else 100)
+        set_val(self.ui.spinbox_sniff_BitLen, "bit_len", signal.bit_len if signal else 100)
         set_val(self.ui.spinbox_sniff_Center, "center", signal.qad_center if signal else 0.02)
         set_val(self.ui.spinbox_sniff_ErrorTolerance, "tolerance", signal.tolerance if signal else 5)
         set_val(self.ui.spinbox_sniff_Noise, "noise", signal.noise_threshold if signal else 0.001)
@@ -90,6 +90,7 @@ class SniffSettingsWidget(QWidget):
         self.ui.comboBox_sniff_encoding.currentIndexChanged.connect(self.on_combobox_sniff_encoding_index_changed)
         self.ui.checkBox_sniff_Timestamp.clicked.connect(self.on_checkbox_sniff_timestamp_clicked)
         self.ui.btn_sniff_use_signal.clicked.connect(self.on_btn_sniff_use_signal_clicked)
+        self.ui.checkBoxAdaptiveNoise.clicked.connect(self.on_check_box_adaptive_noise_clicked)
 
     def emit_editing_finished_signals(self):
         self.ui.spinbox_sniff_Noise.editingFinished.emit()
@@ -178,3 +179,7 @@ class SniffSettingsWidget(QWidget):
         self.ui.combox_sniff_Modulation.setCurrentIndex(signal.modulation_type)
 
         self.emit_editing_finished_signals()
+
+    @pyqtSlot()
+    def on_check_box_adaptive_noise_clicked(self):
+        self.sniffer.adaptive_noise = self.ui.checkBoxAdaptiveNoise.isChecked()

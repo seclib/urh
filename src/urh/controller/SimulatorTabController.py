@@ -58,6 +58,8 @@ class SimulatorTabController(QWidget):
 
         self.ui = Ui_SimulatorTab()
         self.ui.setupUi(self)
+        util.set_splitter_stylesheet(self.ui.splitter)
+        util.set_splitter_stylesheet(self.ui.splitterLeftRight)
 
         self.ui.splitter.setSizes([self.width() / 0.7, self.width() / 0.3])
 
@@ -290,13 +292,14 @@ class SimulatorTabController(QWidget):
         for row in self.ui.tblViewMessage.selected_rows:
             self.simulator_message_table_model.protocol.messages[row].modulator_index = index
 
-    def update_goto_combobox(self):
+    def update_goto_combobox(self, active_item: SimulatorGotoAction):
+        assert isinstance(active_item, SimulatorGotoAction)
         goto_combobox = self.ui.goto_combobox
 
         goto_combobox.blockSignals(True)
         goto_combobox.clear()
         goto_combobox.addItem("Select item ...")
-        goto_combobox.addItems(SimulatorGotoAction.get_valid_goto_targets())
+        goto_combobox.addItems(active_item.get_valid_goto_targets())
         goto_combobox.setCurrentIndex(-1)
         goto_combobox.blockSignals(False)
 
@@ -374,7 +377,7 @@ class SimulatorTabController(QWidget):
         self.__active_item = value
 
         if isinstance(self.active_item, SimulatorGotoAction):
-            self.update_goto_combobox()
+            self.update_goto_combobox(self.active_item)
 
             self.ui.detail_view_widget.setCurrentIndex(1)
         elif isinstance(self.active_item, SimulatorMessage):

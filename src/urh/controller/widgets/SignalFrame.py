@@ -48,14 +48,15 @@ class SignalFrame(QFrame):
     def proto_view(self):
         return self.ui.txtEdProto.cur_view
 
-    def __init__(self, proto_analyzer: ProtocolAnalyzer, undo_stack: QUndoStack,
-                 project_manager, proto_bits=None, parent=None):
+    def __init__(self, proto_analyzer: ProtocolAnalyzer, undo_stack: QUndoStack, project_manager, parent=None):
         super().__init__(parent)
 
         self.undo_stack = undo_stack
 
         self.ui = Ui_SignalFrame()
         self.ui.setupUi(self)
+
+        util.set_splitter_stylesheet(self.ui.splitter)
 
         self.__set_spectrogram_adjust_widgets_visibility()
         self.ui.gvSignal.init_undo_stack(self.undo_stack)

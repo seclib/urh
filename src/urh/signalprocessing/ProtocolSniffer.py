@@ -45,6 +45,7 @@ class ProtocolSniffer(ProtocolAnalyzer, QObject):
 
         self.data_cache = []
         self.reading_data = False
+        self.adaptive_noise = False
 
         self.pause_length = 0
 
@@ -124,7 +125,11 @@ class ProtocolSniffer(ProtocolAnalyzer, QObject):
         :param data:
         :return:
         """
-        is_above_noise = np.mean(data.real ** 2 + data.imag ** 2) > self.signal.noise_threshold ** 2
+        rssi_squared = np.mean(data.real ** 2 + data.imag ** 2)
+        is_above_noise = rssi_squared > self.signal.noise_threshold ** 2
+        if self.adaptive_noise and not is_above_noise:
+            self.signal.noise_threshold = 0.9 * self.signal.noise_threshold + 0.1 * np.max(np.abs(data))
+
         if is_above_noise:
             self.data_cache.append(data)
             self.pause_length = 0
@@ -166,4 +171,5 @@ class ProtocolSniffer(ProtocolAnalyzer, QObject):
         self.started.emit()
 
     def __emit_stopped(self):
-        self.stopped.emit()
+        if hasattr(self, "stopped"):
+            self.stopped.emit()
